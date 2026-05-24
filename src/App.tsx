@@ -127,6 +127,36 @@ const DEFAULT_LANG_KEY: ExamAnswers = {
   part3: [],
 };
 
+const DEFAULT_OMR_CONFIG: OMRConfig = {
+  paperWidth: 800,
+  paperHeight: 1131, // A4 ratio
+  regions: {
+    studentId: { x: 456, y: 220, w: 220, h: 150, cols: 8, rows: 10, type: "single" },
+    examCode: { x: 670, y: 220, w: 96, h: 150, cols: 4, rows: 10, type: "single" },
+    studentName: { x: 110, y: 285, w: 310, h: 45, cols: 25, rows: 1, type: "text" },
+    part1: [
+      { x: 110, y: 400, w: 130, h: 150, cols: 4, rows: 10, type: "single" },
+      { x: 300, y: 400, w: 130, h: 150, cols: 4, rows: 10, type: "single" },
+      { x: 490, y: 400, w: 130, h: 150, cols: 4, rows: 10, type: "single" },
+      { x: 680, y: 400, w: 130, h: 150, cols: 4, rows: 10, type: "single" }
+    ],
+    part2: [
+      { x: 110, y: 560, w: 130, h: 80, cols: 4, rows: 4, type: "truefalse" },
+      { x: 300, y: 560, w: 130, h: 80, cols: 4, rows: 4, type: "truefalse" },
+      { x: 490, y: 560, w: 130, h: 80, cols: 4, rows: 4, type: "truefalse" },
+      { x: 680, y: 560, w: 130, h: 80, cols: 4, rows: 4, type: "truefalse" }
+    ],
+    part3: [
+      { x: 110, y: 760, w: 60, h: 160, cols: 5, rows: 11, type: "text" },
+      { x: 200, y: 760, w: 60, h: 160, cols: 5, rows: 11, type: "text" },
+      { x: 290, y: 760, w: 60, h: 160, cols: 5, rows: 11, type: "text" },
+      { x: 380, y: 760, w: 60, h: 160, cols: 5, rows: 11, type: "text" },
+      { x: 470, y: 760, w: 60, h: 160, cols: 5, rows: 11, type: "text" },
+      { x: 560, y: 760, w: 60, h: 160, cols: 5, rows: 11, type: "text" }
+    ]
+  }
+};
+
 const getDefaultKey = (structureId: string, structures: ExamStructure[]) => {
   const structure = structures.find((s) => s.id === structureId);
   if (structure) {
@@ -655,9 +685,12 @@ export default function App() {
         const { updatedAt, ...coreDataUnsorted } = data;
         
         // Sort keys to ensure stable stringify
+        const syncKeys = ["appUsers", "classes", "examConfigs", "examSessions", "examStructures", "globalOMRConfig"];
         const coreData: any = {};
-        Object.keys(coreDataUnsorted).sort().forEach(k => {
-           coreData[k] = coreDataUnsorted[k];
+        syncKeys.sort().forEach(k => {
+           if (coreDataUnsorted[k] !== undefined) {
+               coreData[k] = coreDataUnsorted[k];
+           }
         });
 
         sessionStorage.setItem("last_synced_globals", JSON.stringify(coreData));
@@ -667,7 +700,7 @@ export default function App() {
         if (coreData.examConfigs && Array.isArray(coreData.examConfigs)) setExamConfigs(coreData.examConfigs);
         if (coreData.examStructures && Array.isArray(coreData.examStructures)) setExamStructures(coreData.examStructures);
         if (coreData.examSessions && Array.isArray(coreData.examSessions)) setExamSessions(coreData.examSessions);
-        if (coreData.globalOMRConfig !== undefined) setGlobalOMRConfig(coreData.globalOMRConfig);
+        if (coreData.globalOMRConfig) setGlobalOMRConfig(coreData.globalOMRConfig);
       }
       initialFetchDone.current = true;
     }, (error) => {
@@ -703,7 +736,10 @@ export default function App() {
     if (!initialFetchDone.current) return;
     const timeout = setTimeout(() => {
       // Create a stringified version to check for actual changes instead of references
-      const syncObj: any = { appUsers, classes, examConfigs, examSessions, examStructures, globalOMRConfig: globalOMRConfig || null };
+      const syncObj: any = { appUsers, classes, examConfigs, examSessions, examStructures };
+      if (globalOMRConfig) {
+         syncObj.globalOMRConfig = globalOMRConfig;
+      }
       const sortedSyncObj: any = {};
       Object.keys(syncObj).sort().forEach(k => {
          sortedSyncObj[k] = syncObj[k];
@@ -714,15 +750,17 @@ export default function App() {
 
       if (firestoreQuotaExceeded) return;
 
-      setDoc(doc(db, "globals", "appData"), {
+      const pushData: any = {
         appUsers,
         classes,
         examConfigs,
         examStructures,
         examSessions,
-        globalOMRConfig,
         updatedAt: Date.now()
-      }, { merge: true }).then(() => {
+      };
+      if (globalOMRConfig) pushData.globalOMRConfig = globalOMRConfig;
+
+      setDoc(doc(db, "globals", "appData"), pushData, { merge: true }).then(() => {
         sessionStorage.setItem("last_synced_globals", currentGlobalStr);
       }).catch((e: any) => {
         console.error("Firebase push error:", e);
@@ -1509,7 +1547,7 @@ export default function App() {
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(imgEl, 0, 0);
 
-      let baseConf = globalOMRConfig;
+      let baseConf = globalOMRConfig || DEFAULT_OMR_CONFIG;
       const omrConfig: OMRConfig = {
         paperWidth: baseConf.paperWidth,
         paperHeight: baseConf.paperHeight,
@@ -2271,208 +2309,7 @@ export default function App() {
         const hasPart3 = activeStructure ? activeStructure.part3?.active : true;
 
         // Cấu hình mẫu giả định (Cần phải map toạ độ pixel chính xác thực tế)
-        let baseConf = image.customConfig ||
-          globalOMRConfig || {
-            paperWidth: 800,
-            paperHeight: 1131, // A4 ratio
-            regions: {
-              studentId: {
-                x: 456,
-                y: 220,
-                w: 220,
-                h: 150,
-                cols: 8,
-                rows: 10,
-                type: "single",
-              },
-              examCode: {
-                x: 670,
-                y: 220,
-                w: 96,
-                h: 150,
-                cols: 4,
-                rows: 10,
-                type: "single",
-              },
-              studentName: {
-                x: 110,
-                y: 285,
-                w: 310,
-                h: 45,
-                cols: 25,
-                rows: 1,
-                type: "text",
-              },
-              part1: [
-                {
-                  x: 110,
-                  y: 400,
-                  w: 130,
-                  h: 150,
-                  cols: 4,
-                  rows: 10,
-                  type: "single",
-                },
-                {
-                  x: 300,
-                  y: 400,
-                  w: 130,
-                  h: 150,
-                  cols: 4,
-                  rows: 10,
-                  type: "single",
-                },
-                {
-                  x: 490,
-                  y: 400,
-                  w: 130,
-                  h: 150,
-                  cols: 4,
-                  rows: 10,
-                  type: "single",
-                },
-                {
-                  x: 680,
-                  y: 400,
-                  w: 130,
-                  h: 150,
-                  cols: 4,
-                  rows: 10,
-                  type: "single",
-                },
-              ],
-              part2: [
-                {
-                  x: 130,
-                  y: 580,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-                {
-                  x: 130,
-                  y: 650,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-                {
-                  x: 320,
-                  y: 580,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-                {
-                  x: 320,
-                  y: 650,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-                {
-                  x: 510,
-                  y: 580,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-                {
-                  x: 510,
-                  y: 650,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-                {
-                  x: 700,
-                  y: 580,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-                {
-                  x: 700,
-                  y: 650,
-                  w: 90,
-                  h: 60,
-                  cols: 2,
-                  rows: 4,
-                  type: "multiple",
-                },
-              ],
-              part3: [
-                {
-                  x: 110,
-                  y: 760,
-                  w: 60,
-                  h: 160,
-                  cols: 5,
-                  rows: 11,
-                  type: "text",
-                },
-                {
-                  x: 200,
-                  y: 760,
-                  w: 60,
-                  h: 160,
-                  cols: 5,
-                  rows: 11,
-                  type: "text",
-                },
-                {
-                  x: 290,
-                  y: 760,
-                  w: 60,
-                  h: 160,
-                  cols: 5,
-                  rows: 11,
-                  type: "text",
-                },
-                {
-                  x: 380,
-                  y: 760,
-                  w: 60,
-                  h: 160,
-                  cols: 5,
-                  rows: 11,
-                  type: "text",
-                },
-                {
-                  x: 470,
-                  y: 760,
-                  w: 60,
-                  h: 160,
-                  cols: 5,
-                  rows: 11,
-                  type: "text",
-                },
-                {
-                  x: 560,
-                  y: 760,
-                  w: 60,
-                  h: 160,
-                  cols: 5,
-                  rows: 11,
-                  type: "text",
-                },
-              ],
-            },
-          };
+        let baseConf = image.customConfig || globalOMRConfig || DEFAULT_OMR_CONFIG;
 
         const omrConfig: OMRConfig = {
           paperWidth: baseConf.paperWidth,
