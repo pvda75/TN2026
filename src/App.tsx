@@ -181,6 +181,18 @@ export interface ScannedImage {
 }
 
 let firestoreQuotaExceeded = false;
+try {
+  const quotaExceededUntil = localStorage.getItem("firestoreQuotaExceededUntil");
+  if (quotaExceededUntil && parseInt(quotaExceededUntil) > Date.now()) {
+     firestoreQuotaExceeded = true;
+  }
+} catch (e) { }
+
+const setQuotaExceeded = () => {
+  firestoreQuotaExceeded = true;
+  // Quota resets at midnight Pacific Time, but for safety just block for 24 hours locally
+  localStorage.setItem("firestoreQuotaExceededUntil", (Date.now() + 24 * 60 * 60 * 1000).toString());
+};
 
 export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -762,14 +774,15 @@ export default function App() {
       };
       if (globalOMRConfig) pushData.globalOMRConfig = globalOMRConfig;
 
+      if (firestoreQuotaExceeded) return;
+
       setDoc(doc(db, "globals", "appData"), pushData, { merge: true }).then(() => {
         sessionStorage.setItem("last_synced_globals", currentGlobalStr);
       }).catch((e: any) => {
         console.error("Firebase push error:", e);
         if (e?.code === 'resource-exhausted') {
-           firestoreQuotaExceeded = true;
+           setQuotaExceeded();
            disableNetwork(db).catch(console.error);
-           alert("Hệ thống đã đạt giới hạn lưu trữ dữ liệu miễn phí trong ngày của Firebase. Các thay đổi tạm thời sẽ chỉ được lưu trên máy của bạn và không thể đồng bộ lên đám mây.");
         }
       });
     }, 2000); // 2 second debounce
@@ -779,6 +792,7 @@ export default function App() {
   useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
     const backupToFirebase = async () => {
+      if (firestoreQuotaExceeded) return;
       try {
         const batch = writeBatch(db);
         let count = 0;
@@ -805,7 +819,7 @@ export default function App() {
       } catch (e: any) {
         console.error("Firebase batch commit error", e);
         if (e?.code === 'resource-exhausted') {
-           firestoreQuotaExceeded = true;
+           setQuotaExceeded();
            disableNetwork(db).catch(console.error);
         }
       }
@@ -1384,13 +1398,19 @@ export default function App() {
     if (selectedHistoryIds.length === 0) return;
 
     try {
-      const batch = writeBatch(db);
-      selectedHistoryIds.forEach((id) => {
-        batch.delete(doc(db, "scanHistory", id));
-      });
-      await batch.commit();
-    } catch (e) {
+      if (!firestoreQuotaExceeded) {
+        const batch = writeBatch(db);
+        selectedHistoryIds.forEach((id) => {
+          batch.delete(doc(db, "scanHistory", id));
+        });
+        await batch.commit();
+      }
+    } catch (e: any) {
       console.error("Failed to delete from Firebase:", e);
+      if (e?.code === 'resource-exhausted') {
+         setQuotaExceeded();
+         disableNetwork(db).catch(console.error);
+      }
     }
 
     const updatedHistory = scanHistory.filter(
@@ -2552,13 +2572,19 @@ export default function App() {
            }
         }
         
-        if (toRemove.size > 0) {
+        if (toRemove.size > 0 && !firestoreQuotaExceeded) {
            try {
               const batch = writeBatch(db);
               toRemove.forEach((id) => {
                  batch.delete(doc(db, "scanHistory", id as string));
               });
-              batch.commit().catch(e => console.error("Firebase deletion match commit error", e));
+              batch.commit().catch(e => {
+                  console.error("Firebase deletion match commit error", e);
+                  if (e?.code === 'resource-exhausted') {
+                     setQuotaExceeded();
+                     disableNetwork(db).catch(console.error);
+                  }
+              });
            } catch(e) {
               console.error(e);
            }
