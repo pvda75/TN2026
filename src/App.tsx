@@ -190,8 +190,15 @@ export default function App() {
   });
 
   const [appUsers, setAppUsers] = useState<any[]>(() => {
-    const saved = localStorage.getItem("app_users");
-    if (saved) return JSON.parse(saved);
+    try {
+      const saved = localStorage.getItem("app_users");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn("Failed to parse app_users from localStorage", e);
+    }
     return [
        { id: "1", username: "admin", passwordHash: "admin", role: "ADMIN" },
        { id: "2", username: "user", passwordHash: "user", role: "USER" },
@@ -214,7 +221,9 @@ export default function App() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = appUsers.find(u => u.username === loginUsername && u.passwordHash === loginPassword);
+    const cleanUsername = loginUsername.trim();
+    const cleanPassword = loginPassword.trim();
+    const user = appUsers.find(u => u.username === cleanUsername && u.passwordHash === cleanPassword);
     if (user) {
       setUserRole(user.role);
       setCurrentUserId(user.id);
