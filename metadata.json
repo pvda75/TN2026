@@ -1,0 +1,8 @@
+{
+  "name": "AutoGrade Pro 2025",
+  "description": "Ứng dụng chấm thi trắc nghiệm theo chuẩn form 2025 của Bộ GDĐT, sử dụng AI nhận diện ảnh.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

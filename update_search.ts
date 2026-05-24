@@ -1,0 +1,13 @@
+import fs from 'fs';
+let code = fs.readFileSync('src/App.tsx', 'utf8');
+
+const target1 = `                                 <div className="flex gap-2">\n                                   <button className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-xs flex items-center justify-center" onClick={(e) => { e.stopPropagation(); exportAllPdfs(); }}>`;
+const replacement1 = `                                 <div className="flex flex-col sm:flex-row gap-2 shrink-0">\n                                   <input \n                                       type="text" \n                                       className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full sm:w-56 bg-white shrink-0" \n                                       placeholder="Tìm SBD, mã đề, hoặc tên..."\n                                       value={historySearchPhrase}\n                                       onChange={(e) => setHistorySearchPhrase(e.target.value)}\n                                   />\n                                   <div className="flex gap-2">\n                                   <button className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-xs flex items-center justify-center whitespace-nowrap" onClick={(e) => { e.stopPropagation(); exportAllPdfs(); }}>`;
+
+code = code.replace(target1, replacement1);
+
+const target2 = `                                   <button className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-xs flex items-center justify-center" onClick={(e) => { e.stopPropagation(); exportCsv(); }}>\n                                      ↓ EXCEL/CSV\n                                   </button>\n                                 </div>\n                              </div>\n                              <div className="divide-y-2 divide-[#141414]">`;
+const replacement2 = `                                   <button className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-xs flex items-center justify-center whitespace-nowrap" onClick={(e) => { e.stopPropagation(); exportCsv(); }}>\n                                      ↓ EXCEL/CSV\n                                   </button>\n                                   </div>\n                                 </div>\n                              </div>\n                              <div className="divide-y-2 divide-[#141414]">`;
+code = code.replace(target2, replacement2);
+
+fs.writeFileSync('src/App.tsx', code);
