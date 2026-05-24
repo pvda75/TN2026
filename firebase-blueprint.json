@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "AppData": {
+      "title": "AppData",
+      "description": "Global application state for sharing app settings, users, classes, and exams configs.",
+      "type": "object",
+      "properties": {
+        "classes": { "type": "array", "description": "Array of class names" },
+        "appUsers": { "type": "array", "description": "Array of user objects with id, username, passwordHash, role" },
+        "examStructures": { "type": "array", "description": "Array of structures" },
+        "examConfigs": { "type": "array", "description": "Array of configs" },
+        "examSessions": { "type": "array", "description": "Array of sessions" },
+        "updatedAt": { "type": "number", "description": "Timestamp" }
+      }
+    },
+    "ScanHistory": {
+      "title": "ScanHistory",
+      "description": "A single scan history item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "examName": { "type": "string" },
+        "examCode": { "type": "string" },
+        "studentId": { "type": "string" },
+        "className": { "type": "string" },
+        "score": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "rawAnswers": { "type": "object", "description": "Answers" },
+        "studentAnswers": { "type": "object" },
+        "imageSrc": { "type": "string", "description": "Base64 image" },
+        "originalImageSrc": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/globals/{docId}": {
+      "schema": "AppData",
+      "description": "Stores the global settings and users"
+    },
+    "/scanHistory/{historyId}": {
+      "schema": "ScanHistory",
+      "description": "Stores the global scan history"
+    }
+  }
+}
