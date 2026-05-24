@@ -439,6 +439,22 @@ export default function App() {
   const [configKey, setConfigKey] = useState<ExamAnswers>(DEFAULT_MATH_KEY);
   const [isCreatingNewExamCode, setIsCreatingNewExamCode] = useState<boolean>(false);
 
+  // Keep examConfigs names in sync with examStructures names
+  useEffect(() => {
+    let changed = false;
+    const nextConfigs = examConfigs.map(c => {
+       const struct = examStructures.find(s => s.id === c.structureId);
+       if (struct && struct.name !== c.name) {
+          changed = true;
+          return { ...c, name: struct.name };
+       }
+       return c;
+    });
+    if (changed) {
+       setExamConfigs(nextConfigs);
+    }
+  }, [examStructures, examConfigs]);
+
   useEffect(() => {
     const validStructures = examStructures.filter(s => s.sessionId === activeSessionId || (!s.sessionId && activeSessionId === "SESSION_DEFAULT"));
     if (validStructures.length > 0) {
@@ -493,12 +509,13 @@ export default function App() {
   const isUserConstrained = currentUserData?.role === "USER";
 
   const allowedClasses = isUserConstrained && currentUserData?.assignedClasses ? classes.filter(c => currentUserData.assignedClasses.includes(c)) : classes;
-  const allExamNamesStr = Array.from(new Set(examConfigs.map((c) => c.name))) as string[];
 
   const validStructureNames = examStructures
     .filter(s => s.sessionId === activeSessionId || (!s.sessionId && activeSessionId === "SESSION_DEFAULT"))
     .map(s => s.name);
-  const validExamNamesStr = allExamNamesStr.filter(name => validStructureNames.includes(name));
+  
+  const allExamNamesStr = Array.from(new Set(examStructures.map(s => s.name))) as string[];
+  const validExamNamesStr = validStructureNames;
 
   const allowedExams = isUserConstrained && currentUserData?.assignedExams ? validExamNamesStr.filter(name => currentUserData.assignedExams.includes(name)) : validExamNamesStr;
 
@@ -1218,6 +1235,9 @@ export default function App() {
   };
 
   const userScanHistory = scanHistory.filter((item) => {
+    const itemSessionId = item.sessionId || "SESSION_DEFAULT";
+    if (itemSessionId !== activeSessionId) return false;
+
     if (isUserConstrained && allowedClasses.length > 0) {
       if (item.className && !allowedClasses.includes(item.className)) return false;
     }
@@ -1280,6 +1300,16 @@ export default function App() {
   const deleteSelectedHistory = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (selectedHistoryIds.length === 0) return;
+
+    try {
+      const batch = writeBatch(db);
+      selectedHistoryIds.forEach((id) => {
+        batch.delete(doc(db, "scanHistory", id));
+      });
+      await batch.commit();
+    } catch (e) {
+      console.error("Failed to delete from Firebase:", e);
+    }
 
     const updatedHistory = scanHistory.filter(
       (item) => !selectedHistoryIds.includes(item.id),
@@ -2612,6 +2642,7 @@ export default function App() {
           className: activeClass,
           examName: gradeExamName,
           examCode: detectedCode,
+          sessionId: activeSessionId,
           score: result.totalScore,
           resultDetails: result.resultDetails,
           timestamp: new Date(),
@@ -2629,10 +2660,36 @@ export default function App() {
     setImages(updatedImages);
 
     if (newHistoryRecords.length > 0) {
-      setScanHistory((prev) => [
-        ...newHistoryRecords,
-        ...prev.filter((item) => !oldHistoryIdsToRemove.has(item.id)),
-      ]);
+      setScanHistory((prev) => {
+        const toRemove = new Set(oldHistoryIdsToRemove);
+        for (const newRec of newHistoryRecords) {
+           if (newRec.studentId && newRec.studentId !== "Chưa rõ") {
+               const existing = prev.find(p => p.studentId === newRec.studentId && p.className === newRec.className && p.examName === newRec.examName && (p.sessionId || "SESSION_DEFAULT") === activeSessionId);
+               if (existing) {
+                  toRemove.add(existing.id);
+               }
+           }
+        }
+        
+        if (toRemove.size > 0) {
+           try {
+              const batch = writeBatch(db);
+              toRemove.forEach((id) => {
+                 batch.delete(doc(db, "scanHistory", id as string));
+              });
+              batch.commit().catch(e => console.error("Firebase deletion match commit error", e));
+           } catch(e) {
+              console.error(e);
+           }
+        }
+
+        return [
+          ...newHistoryRecords,
+          ...prev.filter((item) => !toRemove.has(item.id)),
+        ];
+      });
+      setHistoryClassFilter(activeClass);
+      setHistoryExamFilter(gradeExamName);
       setDialogState({
         type: "alert",
         message: `Đã hoàn tất chấm điểm ${newHistoryRecords.length} bài thi.`,
@@ -3045,6 +3102,21 @@ export default function App() {
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-6 rounded-2xl shadow-none">
                 <div className="flex flex-col gap-4 mb-6 pb-4 border-b border-dashed border-slate-200">
                   <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-indigo-700 w-auto text-left whitespace-nowrap">
+                        Kỳ thi:
+                      </span>
+                      <select
+                        className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate"
+                        value={activeSessionId}
+                        onChange={(e) => setActiveSessionId(e.target.value)}
+                      >
+                        {examSessions.map((session) => (
+                          <option key={session.id} value={session.id}>{session.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold text-indigo-700 w-auto text-left whitespace-nowrap">
                         Bài thi:
@@ -3858,6 +3930,19 @@ export default function App() {
                     <div className="flex-1 overflow-auto flex flex-col">
                       <div className="flex flex-col gap-3 p-4 border-b sm:border-t-0 border-slate-200 bg-slate-50/50 sticky top-0 z-10 shadow-sm">
                         <div className="flex items-center gap-4 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-indigo-700">Kỳ thi:</span>
+                            <select
+                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate"
+                              value={activeSessionId}
+                              onChange={(e) => setActiveSessionId(e.target.value)}
+                            >
+                              {examSessions.map(session => (
+                                <option key={session.id} value={session.id}>{session.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-indigo-700">Bài thi:</span>
                             <select
@@ -5811,8 +5896,22 @@ export default function App() {
                <h3 className="text-lg font-semibold tracking-tighter text-slate-800">
                   Phân bố điểm theo mức điểm
                </h3>
-               <div className="flex items-center gap-2">
-                 <span className="text-sm font-bold text-slate-700">Bài thi:</span>
+               <div className="flex items-center gap-4 flex-wrap">
+                 <div className="flex items-center gap-2">
+                   <span className="text-sm font-bold text-slate-700">Kỳ thi:</span>
+                   <select
+                     className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate"
+                     value={activeSessionId}
+                     onChange={(e) => setActiveSessionId(e.target.value)}
+                   >
+                     {examSessions.map(session => (
+                       <option key={session.id} value={session.id}>{session.name}</option>
+                     ))}
+                   </select>
+                 </div>
+                 
+                 <div className="flex items-center gap-2">
+                   <span className="text-sm font-bold text-slate-700">Bài thi:</span>
                  <select
                    className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
                    value={statsExamFilter}
@@ -5823,6 +5922,7 @@ export default function App() {
                       <option key={name as string} value={name as string}>{name as React.ReactNode}</option>
                    ))}
                  </select>
+               </div>
                </div>
              </div>
              
