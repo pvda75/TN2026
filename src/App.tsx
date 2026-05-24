@@ -150,6 +150,8 @@ export interface ScannedImage {
   customConfig?: OMRConfig;
 }
 
+let firestoreQuotaExceeded = false;
+
 export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -710,6 +712,8 @@ export default function App() {
       const lastSyncedGlobalStr = sessionStorage.getItem("last_synced_globals");
       if (currentGlobalStr === lastSyncedGlobalStr) return; // Skip if no real data changed
 
+      if (firestoreQuotaExceeded) return;
+
       setDoc(doc(db, "globals", "appData"), {
         appUsers,
         classes,
@@ -720,7 +724,13 @@ export default function App() {
         updatedAt: Date.now()
       }, { merge: true }).then(() => {
         sessionStorage.setItem("last_synced_globals", currentGlobalStr);
-      }).catch(e => console.error("Firebase push error:", e));
+      }).catch((e: any) => {
+        console.error("Firebase push error:", e);
+        if (e?.code === 'resource-exhausted') {
+           firestoreQuotaExceeded = true;
+           alert("Hệ thống đã đạt giới hạn lưu trữ dữ liệu miễn phí trong ngày của Firebase. Các thay đổi tạm thời sẽ chỉ được lưu trên máy của bạn và không thể đồng bộ lên đám mây.");
+        }
+      });
     }, 2000); // 2 second debounce
     return () => clearTimeout(timeout);
   }, [appUsers, classes, examConfigs, examStructures, examSessions, globalOMRConfig]);
@@ -748,10 +758,14 @@ export default function App() {
            if (actualChanges >= 490) break; 
         }
         if (actualChanges > 0) {
+           if (firestoreQuotaExceeded) return;
            await batch.commit();
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Firebase batch commit error", e);
+        if (e?.code === 'resource-exhausted') {
+           firestoreQuotaExceeded = true;
+        }
       }
     };
 
