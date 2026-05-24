@@ -6,7 +6,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
 import localforage from "localforage";
-import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, disableNetwork } from "firebase/firestore";
 import { db } from "./firebase";
 import * as XLSX from "xlsx";
 import {
@@ -716,6 +716,8 @@ export default function App() {
       setScanHistory(prevHistory => {
          // Merge with existing images from localForage
          return histories.map(remoteItem => {
+            const { imageSrc, originalImageSrc, ...metadataOnly } = remoteItem;
+            sessionStorage.setItem("sync_history_" + remoteItem.id, JSON.stringify(metadataOnly));
             const localItem = prevHistory.find(p => p.id === remoteItem.id);
             if (localItem && localItem.imageSrc) {
                return { ...remoteItem, imageSrc: localItem.imageSrc, originalImageSrc: localItem.originalImageSrc };
@@ -766,6 +768,7 @@ export default function App() {
         console.error("Firebase push error:", e);
         if (e?.code === 'resource-exhausted') {
            firestoreQuotaExceeded = true;
+           disableNetwork(db).catch(console.error);
            alert("Hệ thống đã đạt giới hạn lưu trữ dữ liệu miễn phí trong ngày của Firebase. Các thay đổi tạm thời sẽ chỉ được lưu trên máy của bạn và không thể đồng bộ lên đám mây.");
         }
       });
@@ -803,6 +806,7 @@ export default function App() {
         console.error("Firebase batch commit error", e);
         if (e?.code === 'resource-exhausted') {
            firestoreQuotaExceeded = true;
+           disableNetwork(db).catch(console.error);
         }
       }
     };
