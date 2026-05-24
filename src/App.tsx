@@ -378,8 +378,15 @@ export default function App() {
     return [{ id: "SESSION_DEFAULT", name: "Kỳ thi chung" }];
   });
 
-  const [activeSessionId, setActiveSessionId] = useState<string>("SESSION_DEFAULT");
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
+    return localStorage.getItem("autograde_active_session") || "SESSION_DEFAULT";
+  });
   const [isEditingSessions, setIsEditingSessions] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("autograde_active_session", activeSessionId);
+  }, [activeSessionId]);
+
 
   // Step 1: Subjects/Structures
   const [examStructures, setExamStructures] = useState<ExamStructure[]>(() => {
@@ -508,7 +515,7 @@ export default function App() {
   const currentUserData = appUsers.find(u => u.id === currentUserId);
   const isUserConstrained = currentUserData?.role === "USER";
 
-  const allowedClasses = isUserConstrained && currentUserData?.assignedClasses ? classes.filter(c => currentUserData.assignedClasses.includes(c)) : classes;
+  const allowedClasses = isUserConstrained && currentUserData?.assignedClasses?.length > 0 ? classes.filter(c => currentUserData.assignedClasses.includes(c)) : classes;
 
   const validStructureNames = examStructures
     .filter(s => s.sessionId === activeSessionId || (!s.sessionId && activeSessionId === "SESSION_DEFAULT"))
@@ -517,7 +524,7 @@ export default function App() {
   const allExamNamesStr = Array.from(new Set(examStructures.map(s => s.name))) as string[];
   const validExamNamesStr = validStructureNames;
 
-  const allowedExams = isUserConstrained && currentUserData?.assignedExams ? validExamNamesStr.filter(name => currentUserData.assignedExams.includes(name)) : validExamNamesStr;
+  const allowedExams = isUserConstrained && currentUserData?.assignedExams?.length > 0 ? validExamNamesStr.filter(name => currentUserData.assignedExams.includes(name)) : validExamNamesStr;
 
   useEffect(() => {
      if (allowedClasses.length > 0 && !allowedClasses.includes(activeClass)) {
