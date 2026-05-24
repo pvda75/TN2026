@@ -650,8 +650,14 @@ export default function App() {
     const unsub = onSnapshot(doc(db, "globals", "appData"), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
-        const { updatedAt, ...coreData } = data;
+        const { updatedAt, ...coreDataUnsorted } = data;
         
+        // Sort keys to ensure stable stringify
+        const coreData: any = {};
+        Object.keys(coreDataUnsorted).sort().forEach(k => {
+           coreData[k] = coreDataUnsorted[k];
+        });
+
         sessionStorage.setItem("last_synced_globals", JSON.stringify(coreData));
 
         if (coreData.appUsers && Array.isArray(coreData.appUsers)) setAppUsers(coreData.appUsers);
@@ -659,6 +665,7 @@ export default function App() {
         if (coreData.examConfigs && Array.isArray(coreData.examConfigs)) setExamConfigs(coreData.examConfigs);
         if (coreData.examStructures && Array.isArray(coreData.examStructures)) setExamStructures(coreData.examStructures);
         if (coreData.examSessions && Array.isArray(coreData.examSessions)) setExamSessions(coreData.examSessions);
+        if (coreData.globalOMRConfig !== undefined) setGlobalOMRConfig(coreData.globalOMRConfig);
       }
       initialFetchDone.current = true;
     }, (error) => {
@@ -694,7 +701,12 @@ export default function App() {
     if (!initialFetchDone.current) return;
     const timeout = setTimeout(() => {
       // Create a stringified version to check for actual changes instead of references
-      const currentGlobalStr = JSON.stringify({ appUsers, classes, examConfigs, examStructures, examSessions });
+      const syncObj: any = { appUsers, classes, examConfigs, examSessions, examStructures, globalOMRConfig: globalOMRConfig || null };
+      const sortedSyncObj: any = {};
+      Object.keys(syncObj).sort().forEach(k => {
+         sortedSyncObj[k] = syncObj[k];
+      });
+      const currentGlobalStr = JSON.stringify(sortedSyncObj);
       const lastSyncedGlobalStr = sessionStorage.getItem("last_synced_globals");
       if (currentGlobalStr === lastSyncedGlobalStr) return; // Skip if no real data changed
 
@@ -704,13 +716,14 @@ export default function App() {
         examConfigs,
         examStructures,
         examSessions,
+        globalOMRConfig,
         updatedAt: Date.now()
       }).then(() => {
         sessionStorage.setItem("last_synced_globals", currentGlobalStr);
       }).catch(e => console.error("Firebase push error:", e));
     }, 2000); // 2 second debounce
     return () => clearTimeout(timeout);
-  }, [appUsers, classes, examConfigs, examStructures, examSessions]);
+  }, [appUsers, classes, examConfigs, examStructures, examSessions, globalOMRConfig]);
 
   useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
@@ -834,6 +847,12 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("autograde_classes", JSON.stringify(classes));
   }, [classes]);
+
+  useEffect(() => {
+    if (globalOMRConfig) {
+       localStorage.setItem("omr_calibration_config", JSON.stringify(globalOMRConfig));
+    }
+  }, [globalOMRConfig]);
 
   useEffect(() => {
     if (!isLoadedRef.current) return;
