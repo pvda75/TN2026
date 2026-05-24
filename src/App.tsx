@@ -3341,10 +3341,14 @@ export default function App() {
                               audio={false}
                               ref={webcamRef}
                               screenshotFormat="image/jpeg"
+                              forceScreenshotSourceSize={true}
                               videoConstraints={{
                                 deviceId: scannerConfig.deviceId
                                   ? { exact: scannerConfig.deviceId }
                                   : undefined,
+                                facingMode: "environment",
+                                width: { ideal: 1920 },
+                                height: { ideal: 1080 }
                               }}
                               className="absolute inset-0 w-full h-full object-contain"
                             />
