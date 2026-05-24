@@ -2852,7 +2852,7 @@ export default function App() {
               <CheckCircle className="w-7 h-7 text-white" />
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-indigo-600">ĐĂNG NHẬP</h1>
-            <p className="text-sm text-indigo-500 mt-2 text-center">Hệ thống chấm thi trắc nghiệm</p>
+            <p className="text-sm text-indigo-500 mt-2 text-center">Hệ thống chấm trắc nghiệm</p>
           </div>
           
           <form onSubmit={handleLogin} className="space-y-5">
