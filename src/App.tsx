@@ -51,7 +51,6 @@ import {
   Legend,
   ResponsiveContainer
 } from "recharts";
-import * as XLSX from "xlsx";
 
 
 import Calibration from "./components/Calibration";
@@ -217,112 +216,6 @@ export default function App() {
 
   const [showAddUserModal, setShowAddUserModal] = useState(false);
 
-  // --- FIREBASE SYNC: Globals ---
-  const initialFetchDone = useRef(false);
-  const initialHistoryFetchDone = useRef(false);
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, "globals", "appData"), (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        const { updatedAt, ...coreData } = data;
-        
-        sessionStorage.setItem("last_synced_globals", JSON.stringify(coreData));
-
-        if (coreData.appUsers && Array.isArray(coreData.appUsers)) setAppUsers(coreData.appUsers);
-        if (coreData.classes && Array.isArray(coreData.classes)) setClasses(coreData.classes);
-        if (coreData.examConfigs && Array.isArray(coreData.examConfigs)) setExamConfigs(coreData.examConfigs);
-        if (coreData.examStructures && Array.isArray(coreData.examStructures)) setExamStructures(coreData.examStructures);
-        if (coreData.examSessions && Array.isArray(coreData.examSessions)) setExamSessions(coreData.examSessions);
-      }
-      initialFetchDone.current = true;
-    }, (error) => {
-      console.error("Firebase globals sync error:", error);
-    });
-    
-    // Subscribe to scanHistory
-    const unsubHistory = onSnapshot(collection(db, "scanHistory"), (snapshot) => {
-      const histories = snapshot.docs.map(doc => doc.data() as any);
-      // Sort by timestamp descending
-      histories.sort((a, b) => b.timestamp - a.timestamp);
-      
-      setScanHistory(prevHistory => {
-         // Merge with existing images from localForage
-         return histories.map(remoteItem => {
-            const localItem = prevHistory.find(p => p.id === remoteItem.id);
-            if (localItem && localItem.imageSrc) {
-               return { ...remoteItem, imageSrc: localItem.imageSrc, originalImageSrc: localItem.originalImageSrc };
-            }
-            return remoteItem;
-         });
-      });
-      initialHistoryFetchDone.current = true;
-    });
-
-    return () => {
-       unsub();
-       unsubHistory();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!initialFetchDone.current) return;
-    const timeout = setTimeout(() => {
-      // Create a stringified version to check for actual changes instead of references
-      const currentGlobalStr = JSON.stringify({ appUsers, classes, examConfigs, examStructures, examSessions });
-      const lastSyncedGlobalStr = sessionStorage.getItem("last_synced_globals");
-      if (currentGlobalStr === lastSyncedGlobalStr) return; // Skip if no real data changed
-
-      setDoc(doc(db, "globals", "appData"), {
-        appUsers,
-        classes,
-        examConfigs,
-        examStructures,
-        examSessions,
-        updatedAt: Date.now()
-      }).then(() => {
-        sessionStorage.setItem("last_synced_globals", currentGlobalStr);
-      }).catch(e => console.error("Firebase push error:", e));
-    }, 2000); // 2 second debounce
-    return () => clearTimeout(timeout);
-  }, [appUsers, classes, examConfigs, examStructures, examSessions]);
-
-  useEffect(() => {
-    if (!initialHistoryFetchDone.current) return;
-    const backupToFirebase = async () => {
-      try {
-        const batch = writeBatch(db);
-        let count = 0;
-        let actualChanges = 0;
-        
-        for (const item of scanHistory) {
-           const docRef = doc(db, "scanHistory", item.id);
-           const { imageSrc, originalImageSrc, ...metadataOnly } = item;
-           const metadataStr = JSON.stringify(metadataOnly);
-           const lastSynced = sessionStorage.getItem("sync_history_" + item.id);
-           
-           if (lastSynced !== metadataStr) {
-               batch.set(docRef, metadataOnly);
-               sessionStorage.setItem("sync_history_" + item.id, metadataStr);
-               actualChanges++;
-           }
-           count++;
-           if (actualChanges >= 490) break; 
-        }
-        if (actualChanges > 0) {
-           await batch.commit();
-        }
-      } catch (e) {
-        console.error("Firebase batch commit error", e);
-      }
-    };
-
-    const timeout = setTimeout(() => {
-      backupToFirebase();
-    }, 3000);
-
-    return () => clearTimeout(timeout);
-  }, [scanHistory]);
-  // --------------------------------
 
   const [showPermissionModal, setShowPermissionModal] = useState<string | null>(null);
   const [newUserInput, setNewUserInput] = useState({ username: "", password: "", role: "USER" as "ADMIN" | "USER" });
@@ -726,6 +619,112 @@ export default function App() {
   const [imageZoomLevel, setImageZoomLevel] = useState<number>(0.75);
 
   const isLoadedRef = useRef(false);
+  // --- FIREBASE SYNC: Globals ---
+  const initialFetchDone = useRef(false);
+  const initialHistoryFetchDone = useRef(false);
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "globals", "appData"), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        const { updatedAt, ...coreData } = data;
+        
+        sessionStorage.setItem("last_synced_globals", JSON.stringify(coreData));
+
+        if (coreData.appUsers && Array.isArray(coreData.appUsers)) setAppUsers(coreData.appUsers);
+        if (coreData.classes && Array.isArray(coreData.classes)) setClasses(coreData.classes);
+        if (coreData.examConfigs && Array.isArray(coreData.examConfigs)) setExamConfigs(coreData.examConfigs);
+        if (coreData.examStructures && Array.isArray(coreData.examStructures)) setExamStructures(coreData.examStructures);
+        if (coreData.examSessions && Array.isArray(coreData.examSessions)) setExamSessions(coreData.examSessions);
+      }
+      initialFetchDone.current = true;
+    }, (error) => {
+      console.error("Firebase globals sync error:", error);
+    });
+    
+    // Subscribe to scanHistory
+    const unsubHistory = onSnapshot(collection(db, "scanHistory"), (snapshot) => {
+      const histories = snapshot.docs.map(doc => doc.data() as any);
+      // Sort by timestamp descending
+      histories.sort((a, b) => b.timestamp - a.timestamp);
+      
+      setScanHistory(prevHistory => {
+         // Merge with existing images from localForage
+         return histories.map(remoteItem => {
+            const localItem = prevHistory.find(p => p.id === remoteItem.id);
+            if (localItem && localItem.imageSrc) {
+               return { ...remoteItem, imageSrc: localItem.imageSrc, originalImageSrc: localItem.originalImageSrc };
+            }
+            return remoteItem;
+         });
+      });
+      initialHistoryFetchDone.current = true;
+    });
+
+    return () => {
+       unsub();
+       unsubHistory();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!initialFetchDone.current) return;
+    const timeout = setTimeout(() => {
+      // Create a stringified version to check for actual changes instead of references
+      const currentGlobalStr = JSON.stringify({ appUsers, classes, examConfigs, examStructures, examSessions });
+      const lastSyncedGlobalStr = sessionStorage.getItem("last_synced_globals");
+      if (currentGlobalStr === lastSyncedGlobalStr) return; // Skip if no real data changed
+
+      setDoc(doc(db, "globals", "appData"), {
+        appUsers,
+        classes,
+        examConfigs,
+        examStructures,
+        examSessions,
+        updatedAt: Date.now()
+      }).then(() => {
+        sessionStorage.setItem("last_synced_globals", currentGlobalStr);
+      }).catch(e => console.error("Firebase push error:", e));
+    }, 2000); // 2 second debounce
+    return () => clearTimeout(timeout);
+  }, [appUsers, classes, examConfigs, examStructures, examSessions]);
+
+  useEffect(() => {
+    if (!initialHistoryFetchDone.current) return;
+    const backupToFirebase = async () => {
+      try {
+        const batch = writeBatch(db);
+        let count = 0;
+        let actualChanges = 0;
+        
+        for (const item of scanHistory) {
+           const docRef = doc(db, "scanHistory", item.id);
+           const { imageSrc, originalImageSrc, ...metadataOnly } = item;
+           const metadataStr = JSON.stringify(metadataOnly);
+           const lastSynced = sessionStorage.getItem("sync_history_" + item.id);
+           
+           if (lastSynced !== metadataStr) {
+               batch.set(docRef, metadataOnly);
+               sessionStorage.setItem("sync_history_" + item.id, metadataStr);
+               actualChanges++;
+           }
+           count++;
+           if (actualChanges >= 490) break; 
+        }
+        if (actualChanges > 0) {
+           await batch.commit();
+        }
+      } catch (e) {
+        console.error("Firebase batch commit error", e);
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      backupToFirebase();
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [scanHistory]);
+  // --------------------------------
 
   // Load initial data from localforage
   useEffect(() => {
@@ -5084,14 +5083,10 @@ export default function App() {
                                   onClick={() => {
                                     setDialogState({
                                       type: "confirm",
-                                      message: `Chắc chắn xóa cấu hình cho mã đề ${code}?`,
+                                      message: `Chắc chắn xóa cấu hình cho mã đề ${config.code}?`,
                                       onConfirm: () => {
-                                        setExamConfigs((prev) => {
-                                          const next = { ...prev };
-                                          delete next[code];
-                                          return next;
-                                        });
-                                        if (configExamCode === code) {
+                                        setExamConfigs((prev) => prev.filter(c => c.name !== examName || c.code !== config.code));
+                                        if (configExamCode === config.code) {
                                           setConfigExamCode("");
                                           setConfigKey(
                                             getDefaultKey(
@@ -5102,7 +5097,7 @@ export default function App() {
                                         }
                                         setDialogState({
                                           type: "alert",
-                                          message: "Đã xóa mã đề " + code,
+                                          message: "Đã xóa mã đề " + config.code,
                                         });
                                       },
                                     });
