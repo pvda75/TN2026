@@ -718,7 +718,7 @@ export default function App() {
         examSessions,
         globalOMRConfig,
         updatedAt: Date.now()
-      }).then(() => {
+      }, { merge: true }).then(() => {
         sessionStorage.setItem("last_synced_globals", currentGlobalStr);
       }).catch(e => console.error("Firebase push error:", e));
     }, 2000); // 2 second debounce
