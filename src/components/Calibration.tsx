@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Upload, Save, Maximize, Target, FileImage } from "lucide-react";
+import { Upload, Save, Maximize, Target, FileImage, Download, FileUp } from "lucide-react";
 import { OMRConfig } from "../services/omrService";
 
 const DEFAULT_CONFIG: OMRConfig = {
@@ -79,6 +79,38 @@ export default function Calibration({
   );
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+
+  const handleExportConfig = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href",     dataStr);
+    downloadAnchorNode.setAttribute("download", "omr_calibration_config.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  const handleImportConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+       const reader = new FileReader();
+       reader.onload = (e) => {
+          try {
+             const parsed = JSON.parse(e.target?.result as string);
+             if (parsed && typeof parsed === 'object' && parsed.regions) {
+                 setConfig(parsed);
+                 alert("Đã nhập cấu hình toạ độ thành công!");
+             } else {
+                 alert("File cấu hình không hợp lệ.");
+             }
+          } catch (err) {
+             alert("Lỗi khi đọc file cấu hình.");
+          }
+       };
+       reader.readAsText(file);
+    }
+  };
 
   useEffect(() => {
     if (!customImageSrc) {
@@ -515,6 +547,21 @@ export default function Calibration({
                 className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-50 transition shadow-sm text-sm"
               >
                 <Upload className="w-4 h-4" /> Tải Mẫu Mới
+              </button>
+              <input type="file" ref={importRef} accept=".json" className="hidden" onChange={handleImportConfig} />
+              <button
+                onClick={() => importRef.current?.click()}
+                className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center gap-2"
+                title="Nhập cấu hình (.json)"
+              >
+                <FileUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleExportConfig}
+                className="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center gap-2"
+                title="Xuất cấu hình (.json)"
+              >
+                <Download className="w-4 h-4" />
               </button>
             </>
           )}
