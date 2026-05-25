@@ -2467,7 +2467,7 @@ export default function App() {
     } else {
       setDialogState({
         type: "alert",
-        message: "Đã hoàn tất nhận dạng các ảnh.",
+        message: `Đã hoàn tất nhận dạng ${selectedImages.length} ảnh.`,
       });
     }
     setGlobalProcessing(false);
