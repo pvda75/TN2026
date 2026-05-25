@@ -3033,7 +3033,7 @@ export default function App() {
                         Kỳ thi:
                       </span>
                       <select
-                        className={`border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate ${currentUserData?.role === "ADMIN" ? "text-red-600" : ""}`}
+                        className={`border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate text-red-600`}
                         value={activeSessionId}
                         onChange={(e) => setActiveSessionId(e.target.value)}
                       >
@@ -3863,7 +3863,7 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-indigo-700">Kỳ thi:</span>
                             <select
-                              className={`border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate ${currentUserData?.role === "ADMIN" ? "text-red-600" : ""}`}
+                              className={`border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate text-red-600`}
                               value={activeSessionId}
                               onChange={(e) => setActiveSessionId(e.target.value)}
                             >
@@ -4792,7 +4792,7 @@ export default function App() {
                     Tên bài thi
                   </label>
                   <select
-                    className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-full font-bold ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-slate-800"}`}
+                    className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-full font-bold text-red-600`}
                     value={configStructureId}
                     onChange={(e) => handleConfigStructureChange(e.target.value)}
                   >
@@ -4812,7 +4812,7 @@ export default function App() {
                   </label>
                   {!isCreatingNewExamCode ? (
                     <select
-                      className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow min-w-[120px] font-bold uppercase tracking-widest ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-slate-800"}`}
+                      className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow min-w-[120px] font-bold uppercase tracking-widest text-red-600`}
                       value={configExamCode}
                       disabled={!configStructureId}
                       onChange={(e) => {
@@ -4838,7 +4838,7 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-24 text-center text-lg font-bold tracking-widest uppercase ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-slate-800"}`}
+                        className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-24 text-center text-lg font-bold tracking-widest uppercase text-red-600`}
                         value={configExamCode}
                         onChange={handleConfigCodeChange}
                         maxLength={4}
@@ -5220,7 +5220,7 @@ export default function App() {
                       ) : (
                         <div className="flex items-center gap-3">
                           <select
-                            className={`bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-bold min-w-[200px] ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-indigo-700"}`}
+                            className={`bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-bold min-w-[200px] text-red-600`}
                             value={activeSessionId}
                             onChange={(e) => {
                                if (e.target.value === "__NEW__") {
