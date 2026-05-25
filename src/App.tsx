@@ -3033,7 +3033,7 @@ export default function App() {
                         Kỳ thi:
                       </span>
                       <select
-                        className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate"
+                        className={`border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate ${currentUserData?.role === "ADMIN" ? "text-red-600" : ""}`}
                         value={activeSessionId}
                         onChange={(e) => setActiveSessionId(e.target.value)}
                       >
@@ -3044,11 +3044,11 @@ export default function App() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-indigo-700 w-auto text-left whitespace-nowrap">
+                      <span className="text-sm font-bold text-blue-600 w-auto text-left whitespace-nowrap">
                         Bài thi:
                       </span>
                       <select
-                        className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        className="border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-red-600"
                         value={gradeExamName}
                         onChange={(e) => {
                           setGradeExamName(e.target.value);
@@ -3066,11 +3066,11 @@ export default function App() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-indigo-700 w-auto text-left whitespace-nowrap">
+                      <span className="text-sm font-bold text-blue-600 w-auto text-left whitespace-nowrap">
                         Lớp/Phòng:
                       </span>
                       <select
-                        className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        className="border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-red-600"
                         value={activeClass}
                         onChange={(e) => setActiveClass(e.target.value)}
                       >
@@ -3198,20 +3198,20 @@ export default function App() {
                 {allowedExams.length > 0 && (
                   <>
                     <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                  <h2 className="text-base font-bold text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-600 tracking-wider flex items-center gap-2 uppercase">
-                    <Camera className="w-5 h-5 text-violet-600" /> Quét Phiếu
+                  <h2 className="text-base font-bold tracking-wider flex items-center gap-2 uppercase text-blue-600">
+                    <Camera className="w-5 h-5 text-blue-600" /> Quét Phiếu
                     Trả Lời
                   </h2>
                   <div className="flex gap-2">
-                    <div className="text-sm bg-indigo-100 text-indigo-800 px-3 py-1 rounded-md font-bold border border-indigo-200">
+                    <div className="text-sm px-3 py-1 rounded-md font-bold border bg-blue-50 text-blue-800 border-blue-200">
                       Bài thi:{" "}
-                      <span className="font-extrabold text-indigo-600 uppercase">
+                      <span className="font-extrabold uppercase text-red-600">
                         {gradeExamName}
                       </span>
                     </div>
-                    <div className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-md font-bold border border-blue-200">
+                    <div className="text-sm px-3 py-1 rounded-md font-bold border flex items-center gap-1 bg-blue-50 text-blue-800 border-blue-200">
                       Lớp/Phòng:{" "}
-                      <span className="font-extrabold text-blue-600 uppercase">
+                      <span className="font-extrabold uppercase text-red-600">
                         {activeClass}
                       </span>
                     </div>
@@ -3220,8 +3220,8 @@ export default function App() {
 
                 <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg p-3 text-sm flex gap-2">
                   <div className="flex-1">
-                    <p className="font-medium mb-1">
-                      Để Tăng Tốc Độ & Độ Chính Xác:
+                    <p className="font-medium mb-1 text-red-600">
+                      Để tăng tốc độ & độ chính xác:
                     </p>
                     <ul className="list-disc pl-5 text-blue-700 text-xs space-y-1">
                       <li>
@@ -3863,7 +3863,7 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-indigo-700">Kỳ thi:</span>
                             <select
-                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate"
+                              className={`border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate ${currentUserData?.role === "ADMIN" ? "text-red-600" : ""}`}
                               value={activeSessionId}
                               onChange={(e) => setActiveSessionId(e.target.value)}
                             >
@@ -3874,9 +3874,9 @@ export default function App() {
                           </div>
                           
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-indigo-700">Bài thi:</span>
+                            <span className="text-sm font-bold text-blue-600">Bài thi:</span>
                             <select
-                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-red-600"
                               value={historyExamFilter}
                               onChange={(e) => setHistoryExamFilter(e.target.value)}
                             >
@@ -3894,9 +3894,9 @@ export default function App() {
                             </select>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-indigo-700">Lớp/Phòng:</span>
+                            <span className="text-sm font-bold text-blue-600">Lớp/Phòng:</span>
                             <select
-                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-red-600"
                               value={historyClassFilter}
                               onChange={(e) => setHistoryClassFilter(e.target.value)}
                             >
@@ -3914,9 +3914,9 @@ export default function App() {
                             </select>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-indigo-700">Trạng thái:</span>
+                            <span className="text-sm font-bold text-blue-600">Trạng thái:</span>
                             <select
-                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                              className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-red-600"
                               value={historyErrorFilter}
                               onChange={(e) => setHistoryErrorFilter(e.target.value)}
                             >
@@ -3929,11 +3929,11 @@ export default function App() {
                         </div>
 
                         <div className="flex justify-between items-center flex-wrap gap-3">
-                          <div className="flex items-center gap-3 text-xs font-semibold text-slate-500 tracking-widest flex-wrap">
-                          <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-700 transition-colors">
+                          <div className="flex items-center gap-3 text-xs font-semibold text-blue-600 tracking-widest flex-wrap">
+                          <label className="flex items-center gap-1.5 cursor-pointer hover:text-blue-800 transition-colors">
                             <input
                               type="checkbox"
-                              className="w-4 h-4 cursor-pointer accent-red-600 rounded"
+                              className="w-4 h-4 cursor-pointer accent-blue-600 rounded"
                               checked={
                                 activeClassHistory.length > 0 &&
                                 selectedHistoryIds.length ===
@@ -3961,9 +3961,11 @@ export default function App() {
                           </label>
                           <span className="w-px h-4 bg-slate-300"></span>
                           <span>
-                            Đã hiển thị: {activeClassHistory.length} /{" "}
-                            {
-                              userScanHistory.filter(
+                            Đã hiển thị:{" "}
+                            <span className="text-red-600">
+                              {activeClassHistory.length} /{" "}
+                              {
+                                userScanHistory.filter(
                                 (h) => {
                                   if (historyClassFilter !== "ALL" && h.className !== historyClassFilter) return false;
                                   if (historyExamFilter !== "ALL" && h.examName !== historyExamFilter) return false;
@@ -3993,6 +3995,7 @@ export default function App() {
                                 }
                               ).length
                             }
+                            </span>
                           </span>
                           {selectedHistoryIds.length > 0 && (
                             <div className="flex gap-2">
@@ -4785,11 +4788,11 @@ export default function App() {
               </div>
               <div className="flex gap-4 flex-wrap">
                 <div className="flex flex-col min-w-[200px]">
-                  <label className="text-sm font-bold text-indigo-700 mb-1">
+                  <label className="text-sm font-bold text-blue-600 mb-1">
                     Tên bài thi
                   </label>
                   <select
-                    className="border border-slate-300 rounded-lg px-3 py-2.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-full font-medium"
+                    className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-full font-bold ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-slate-800"}`}
                     value={configStructureId}
                     onChange={(e) => handleConfigStructureChange(e.target.value)}
                   >
@@ -4804,12 +4807,12 @@ export default function App() {
                   </select>
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-sm font-bold text-indigo-700 mb-1">
+                  <label className="text-sm font-bold text-blue-600 mb-1">
                     Mã đề
                   </label>
                   {!isCreatingNewExamCode ? (
                     <select
-                      className="border border-slate-300 rounded-lg px-3 py-2.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow min-w-[120px] font-medium uppercase tracking-widest"
+                      className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow min-w-[120px] font-bold uppercase tracking-widest ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-slate-800"}`}
                       value={configExamCode}
                       disabled={!configStructureId}
                       onChange={(e) => {
@@ -4835,7 +4838,7 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        className="border border-slate-300 rounded-lg px-3 py-2.5 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-24 text-center text-lg font-medium tracking-widest uppercase"
+                        className={`border border-slate-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow w-24 text-center text-lg font-bold tracking-widest uppercase ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-slate-800"}`}
                         value={configExamCode}
                         onChange={handleConfigCodeChange}
                         maxLength={4}
@@ -5217,7 +5220,7 @@ export default function App() {
                       ) : (
                         <div className="flex items-center gap-3">
                           <select
-                            className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-semibold text-indigo-700 min-w-[200px]"
+                            className={`bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-bold min-w-[200px] ${currentUserData?.role === "ADMIN" ? "text-red-600" : "text-indigo-700"}`}
                             value={activeSessionId}
                             onChange={(e) => {
                                if (e.target.value === "__NEW__") {
@@ -5728,8 +5731,8 @@ export default function App() {
         {activeTab === "STEP7_STATS" && (
           <div className="max-w-5xl mx-auto bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 space-y-6 shadow-sm">
             <div className="border-b border-slate-200 pb-4 flex flex-wrap justify-between items-center gap-4">
-              <h2 className="text-xl font-semibold tracking-tighter text-slate-800 flex items-center gap-2">
-                <BarChart3 className="text-indigo-600 w-6 h-6" /> Thống kê điểm theo bài thi
+              <h2 className="text-xl font-semibold tracking-tighter text-blue-600 flex items-center gap-2">
+                <BarChart3 className="text-blue-600 w-6 h-6" /> Thống kê điểm theo bài thi
               </h2>
               <button
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-xl tracking-wide shadow-sm transition-colors text-sm flex items-center gap-2"
@@ -5862,14 +5865,14 @@ export default function App() {
 
            <div className="mt-8 border-t border-slate-200 pt-8">
              <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-               <h3 className="text-lg font-semibold tracking-tighter text-slate-800">
+               <h3 className="text-lg font-semibold tracking-tighter text-blue-600">
                   Phân bố điểm theo mức điểm
                </h3>
                <div className="flex items-center gap-4 flex-wrap">
                  <div className="flex items-center gap-2">
-                   <span className="text-sm font-bold text-slate-700">Kỳ thi:</span>
+                   <span className="text-sm font-bold text-blue-600">Kỳ thi:</span>
                    <select
-                     className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate"
+                     className={`border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white max-w-[200px] truncate text-red-600`}
                      value={activeSessionId}
                      onChange={(e) => setActiveSessionId(e.target.value)}
                    >
@@ -5880,9 +5883,9 @@ export default function App() {
                  </div>
                  
                  <div className="flex items-center gap-2">
-                   <span className="text-sm font-bold text-slate-700">Bài thi:</span>
+                   <span className="text-sm font-bold text-blue-600">Bài thi:</span>
                  <select
-                   className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                   className="border border-slate-300 rounded-lg px-3 py-1.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-red-600"
                    value={statsExamFilter}
                    onChange={(e) => setStatsExamFilter(e.target.value)}
                  >
@@ -5959,7 +5962,7 @@ export default function App() {
       </main>
 
       <footer className="bg-transparent px-6 py-4 flex justify-end items-center text-xs font-medium mt-auto text-slate-400">
-        <div>Powered by Gemini AI</div>
+        <div>TN2026-PVDA</div>
       </footer>
 
       {dialogState && (
