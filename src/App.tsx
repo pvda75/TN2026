@@ -25,8 +25,6 @@ import {
   Target,
   History,
   Edit3,
-  Maximize,
-  Minimize,
   LogOut,
   BarChart3,
 } from "lucide-react";
@@ -195,27 +193,6 @@ const setQuotaExceeded = () => {
 };
 
 export default function App() {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, []);
-
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(err => {
-        console.error(`Error attempting to enable fullscreen mode: ${err.message} (${err.name})`);
-      });
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
-    }
-  };
 
   const [activeTab, setActiveTab] = useState<
     | "STEP1_SUBJECT"
@@ -2992,16 +2969,7 @@ export default function App() {
                 </button>
               )}
 
-              <button
-                onClick={toggleFullscreen}
-                className="px-3 py-1.5 sm:px-4 sm:py-2 border-2 rounded-xl transition-all duration-200 flex items-center gap-1.5 sm:gap-2 text-blue-600 bg-white border-blue-200 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50 hover:shadow-sm"
-              >
-                {isFullscreen ? (
-                  <><Minimize className="w-4 h-4 hidden sm:block" /> Thu nhỏ</>
-                ) : (
-                  <><Maximize className="w-4 h-4 hidden sm:block" /> Toàn màn hình</>
-                )}
-              </button>
+
               <button
                 onClick={handleLogout}
                 className="px-3 py-1.5 sm:px-4 sm:py-2 border-2 rounded-xl transition-all duration-200 flex items-center gap-1.5 sm:gap-2 text-blue-600 bg-white border-blue-200 hover:border-red-300 hover:text-red-700 hover:bg-red-50 hover:shadow-sm"
@@ -4225,7 +4193,7 @@ export default function App() {
                         >
                           Xuất PDF
                         </button>
-                        {currentUser?.role === "ADMIN" && (selectedResult.imageSrc || selectedResult.firebaseImageUrl) && (
+                        {currentUserData?.role === "ADMIN" && (selectedResult.imageSrc || selectedResult.firebaseImageUrl) && (
                           <button
                             className="bg-red-500 hover:bg-red-600 text-white border-red-600 font-semibold py-1.5 px-3 text-xs rounded-lg shadow-sm transition-colors ml-2"
                             onClick={() => {
