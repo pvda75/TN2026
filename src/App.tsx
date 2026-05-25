@@ -7,7 +7,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
 import localforage from "localforage";
 import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, disableNetwork } from "firebase/firestore";
-import { db } from "./firebase";
+import { db, uploadBase64ToStorage, deleteImageFromStorage } from "./firebase";
 import * as XLSX from "xlsx";
 import {
   Camera,
@@ -295,6 +295,7 @@ export default function App() {
   const [globalOMRConfig, setGlobalOMRConfig] = useState<OMRConfig | null>(
     null,
   );
+  const [globalOMRTemplateImage, setGlobalOMRTemplateImage] = useState<string | null>(null);
 
   useEffect(() => {
     const savedConfig = localStorage.getItem("omr_calibration_config");
@@ -697,7 +698,7 @@ export default function App() {
         const { updatedAt, ...coreDataUnsorted } = data;
         
         // Sort keys to ensure stable stringify
-        const syncKeys = ["appUsers", "classes", "examConfigs", "examSessions", "examStructures", "globalOMRConfig"];
+        const syncKeys = ["appUsers", "classes", "examConfigs", "examSessions", "examStructures", "globalOMRConfig", "globalOMRTemplateImage"];
         const coreData: any = {};
         syncKeys.sort().forEach(k => {
            if (coreDataUnsorted[k] !== undefined) {
@@ -713,6 +714,10 @@ export default function App() {
         if (coreData.examStructures && Array.isArray(coreData.examStructures)) setExamStructures(coreData.examStructures);
         if (coreData.examSessions && Array.isArray(coreData.examSessions)) setExamSessions(coreData.examSessions);
         if (coreData.globalOMRConfig) setGlobalOMRConfig(coreData.globalOMRConfig);
+        if (coreData.globalOMRTemplateImage) {
+           setGlobalOMRTemplateImage(coreData.globalOMRTemplateImage);
+           localStorage.setItem("omr_template_calibration_img", coreData.globalOMRTemplateImage);
+        }
       }
       initialFetchDone.current = true;
     }, (error) => {
@@ -754,6 +759,9 @@ export default function App() {
       if (globalOMRConfig) {
          syncObj.globalOMRConfig = globalOMRConfig;
       }
+      if (globalOMRTemplateImage) {
+         syncObj.globalOMRTemplateImage = globalOMRTemplateImage;
+      }
       const sortedSyncObj: any = {};
       Object.keys(syncObj).sort().forEach(k => {
          sortedSyncObj[k] = syncObj[k];
@@ -773,6 +781,7 @@ export default function App() {
         updatedAt: Date.now()
       };
       if (globalOMRConfig) pushData.globalOMRConfig = globalOMRConfig;
+      if (globalOMRTemplateImage) pushData.globalOMRTemplateImage = globalOMRTemplateImage;
 
       if (firestoreQuotaExceeded) return;
 
@@ -787,7 +796,7 @@ export default function App() {
       });
     }, 2000); // 2 second debounce
     return () => clearTimeout(timeout);
-  }, [appUsers, classes, examConfigs, examStructures, examSessions, globalOMRConfig]);
+  }, [appUsers, classes, examConfigs, examStructures, examSessions, globalOMRConfig, globalOMRTemplateImage]);
 
   useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
@@ -829,6 +838,45 @@ export default function App() {
       backupToFirebase();
     }, 3000);
 
+    return () => clearTimeout(timeout);
+  }, [scanHistory]);
+  // background sync images to storage
+  useEffect(() => {
+    const uploadImages = async () => {
+      // Find items that have imageSrc (local base64 limit check implicitly by seeing if it has data) 
+      // but no firebaseImageUrl, and are not currently uploading
+      const itemsToUpload = scanHistory.filter((item: any) => item.imageSrc && !item.firebaseImageUrl && !item.isUploading);
+      if (itemsToUpload.length === 0) return;
+
+      const newHistory = [...scanHistory];
+      for (const item of itemsToUpload) {
+        const idx = newHistory.findIndex(x => x.id === item.id);
+        if (idx !== -1) {
+          newHistory[idx] = { ...newHistory[idx], isUploading: true };
+        }
+      }
+      setScanHistory(newHistory);
+
+      for (const item of itemsToUpload) {
+        try {
+          const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
+          const url = await uploadBase64ToStorage(path, item.imageSrc);
+          setScanHistory(prev => {
+             return prev.map(p => p.id === item.id ? { ...p, firebaseImageUrl: url, isUploading: false } : p);
+          });
+        } catch (e) {
+          console.error("Storage upload failed", e);
+          setScanHistory(prev => {
+             return prev.map(p => p.id === item.id ? { ...p, isUploading: false } : p);
+          });
+        }
+      }
+    };
+    
+    // Don't overwhelm the thread with uploads constantly, debounce slightly
+    const timeout = setTimeout(() => {
+      uploadImages();
+    }, 5000);
     return () => clearTimeout(timeout);
   }, [scanHistory]);
   // --------------------------------
@@ -1497,10 +1545,10 @@ export default function App() {
       selectedHistoryIds.includes(item.id),
     );
     const newImages = itemsToRescan
-      .filter((i) => i.imageSrc)
+      .filter((i) => i.imageSrc || i.firebaseImageUrl)
       .map((item) => ({
         id: Date.now().toString() + Math.random().toString(),
-        src: item.imageSrc,
+        src: item.imageSrc || item.firebaseImageUrl,
         selected: true,
         status: "pending",
         examName: gradeExamName,
@@ -1518,14 +1566,15 @@ export default function App() {
 
   const regradeSingleResultInline = async (resultId: string) => {
     const match = scanHistory.find((i) => i.id === resultId);
-    if (!match || (!match.imageSrc && !match.originalImageSrc)) return;
+    if (!match || (!match.imageSrc && !match.originalImageSrc && !match.firebaseImageUrl)) return;
 
-    const sourceImageToProcess = match.originalImageSrc || match.imageSrc;
+    const sourceImageToProcess = match.originalImageSrc || match.imageSrc || match.firebaseImageUrl;
 
     setGlobalProcessing(true);
     try {
-      const processedDataUrl = await new Promise<string>((resolve) => {
+      const processedDataUrl = await new Promise<string>((resolve, reject) => {
         const img = new window.Image();
+        img.crossOrigin = "anonymous";
         img.onload = () => {
           const canvas = document.createElement("canvas");
           const MAX_WIDTH = 1200;
@@ -1621,8 +1670,8 @@ export default function App() {
 
             const updatedItem = {
               ...match,
-              imageSrc: warpedImage || processedDataUrl || match.imageSrc,
-              originalImageSrc: match.originalImageSrc || match.imageSrc,
+              imageSrc: warpedImage || processedDataUrl || match.imageSrc || match.firebaseImageUrl,
+              originalImageSrc: match.originalImageSrc || match.imageSrc || match.firebaseImageUrl,
               rawAnswers: cleanStudentAnswers,
               examCode: detectedCode,
               studentId:
@@ -1802,12 +1851,14 @@ export default function App() {
   };
 
   const generateDrawnCanvasUrl = async (item: any): Promise<string | null> => {
-    if (!item.imageSrc) return null;
+    const url = item.imageSrc || item.firebaseImageUrl;
+    if (!url) return null;
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     const img = new Image();
-    img.src = item.imageSrc;
+    img.crossOrigin = "anonymous";
+    img.src = url;
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
@@ -2042,7 +2093,7 @@ export default function App() {
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        if (!item.imageSrc) continue;
+        if (!item.imageSrc && !item.firebaseImageUrl) continue;
 
         const imgData = await generateDrawnCanvasUrl(item);
         if (!imgData) continue;
@@ -3977,7 +4028,7 @@ export default function App() {
                           </span>
                           {selectedHistoryIds.length > 0 && (
                             <div className="flex gap-2">
-                              {selectedHistoryIds.length !== activeClassHistory.length && (
+                              {selectedHistoryIds.length > 1 && selectedHistoryIds.length !== activeClassHistory.length && (
                                 <>
                                   <button
                                     className="bg-amber-500 hover:bg-amber-600 text-white font-medium py-1 px-2 rounded tracking-normal normal-case shadow-sm transition-colors text-xs"
@@ -4174,9 +4225,47 @@ export default function App() {
                         >
                           Xuất PDF
                         </button>
+                        {currentUser?.role === "ADMIN" && (selectedResult.imageSrc || selectedResult.firebaseImageUrl) && (
+                          <button
+                            className="bg-red-500 hover:bg-red-600 text-white border-red-600 font-semibold py-1.5 px-3 text-xs rounded-lg shadow-sm transition-colors ml-2"
+                            onClick={() => {
+                              setDialogState({
+                                type: "confirm",
+                                message: "Xóa ảnh quét khỏi máy lưu trữ và cloud (nếu có) để tiết kiệm dung lượng?",
+                                onConfirm: async () => {
+                                    if (selectedResult.firebaseImageUrl) {
+                                      try {
+                                        // Path could be derived if needed, but it's easier to find path from URL or delete locally if we just want to save local space. Wait, deleteImageFromStorage needs the path or https URL?
+                                        // Wait, deleteObject(ref(storage, url)) works in Firebase if URL is highly predictable, but wait: `ref(storage, url)` works!
+                                        setGlobalProcessing(true);
+                                        await deleteImageFromStorage(selectedResult.firebaseImageUrl);
+                                        setGlobalProcessing(false);
+                                      } catch (e) {
+                                        console.error(e);
+                                      }
+                                    }
+                                    setScanHistory(prev => prev.map(item => {
+                                      if (item.id === selectedResult.id) {
+                                        const { imageSrc, originalImageSrc, firebaseImageUrl, ...rest } = item;
+                                        return rest;
+                                      }
+                                      return item;
+                                    }));
+                                    setSelectedResult((prev: any) => {
+                                       if (!prev) return prev;
+                                       const { imageSrc, originalImageSrc, firebaseImageUrl, ...rest } = prev;
+                                       return rest;
+                                    });
+                                }
+                              });
+                            }}
+                          >
+                            Xóa ảnh
+                          </button>
+                        )}
                       </div>
                     </div>
-                    {selectedResult.imageSrc ? (
+                    {(selectedResult.imageSrc || selectedResult.firebaseImageUrl) ? (
                       <div className="overflow-auto w-full h-[calc(100%-60px)] bg-slate-200/50 rounded-lg border border-slate-200 flex justify-center items-start p-2">
                         <div
                           id="print-area"
@@ -4184,7 +4273,7 @@ export default function App() {
                           style={{ width: `${imageZoomLevel * 100}%` }}
                         >
                           <img
-                            src={selectedResult.imageSrc}
+                            src={selectedResult.imageSrc || selectedResult.firebaseImageUrl}
                             alt="Scanned form"
                             className="w-full h-auto object-contain block relative z-0"
                           />
@@ -5564,6 +5653,7 @@ export default function App() {
                 "omr_calibration_config",
                 JSON.stringify(cfg),
               );
+              setGlobalOMRTemplateImage(localStorage.getItem("omr_template_calibration_img"));
               setActiveTab("STEP3_SCAN");
             }}
           />

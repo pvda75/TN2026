@@ -1,12 +1,30 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+
+export const uploadBase64ToStorage = async (path: string, base64: string): Promise<string> => {
+  const fileRef = ref(storage, path);
+  await uploadString(fileRef, base64, 'data_url');
+  return await getDownloadURL(fileRef);
+};
+
+export const deleteImageFromStorage = async (path: string) => {
+  const fileRef = ref(storage, path);
+  try {
+    await deleteObject(fileRef);
+  } catch (error) {
+    console.error("Error deleting image from storage: ", error);
+  }
+};
+
 
 export const loginWithGoogle = async () => {
   try {
