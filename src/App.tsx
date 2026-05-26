@@ -3657,7 +3657,7 @@ export default function App() {
                           >
                             <img
                               src={img.src}
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-contain"
                             />
                             <div className="absolute top-2 left-2 flex gap-1">
                               <div
