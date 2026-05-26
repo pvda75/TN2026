@@ -2561,6 +2561,21 @@ export default function App() {
           currentStructure,
         );
 
+        const existingRec = scanHistory.find(
+          (p) =>
+            p.studentId === studentAnswers.studentId &&
+            p.className === activeClass &&
+            p.examName === gradeExamName &&
+            (p.sessionId || "SESSION_DEFAULT") === activeSessionId
+        );
+        if (existingRec && existingRec.id !== img.result?.id) {
+          return {
+            ...img,
+            status: "error",
+            errorMsg: "Trùng số báo danh nên không cho phép ghi nhận",
+          };
+        }
+
         if (img.result?.id) {
           oldHistoryIdsToRemove.add(img.result.id);
         }
@@ -2739,7 +2754,7 @@ export default function App() {
     if (type === "studentId") {
       const duplicate = scanHistory.find(h => h.className === item.className && h.studentId === newValue && h.id !== resultId);
       if (duplicate) {
-        setDialogState({ type: "alert", message: `Số báo danh ${newValue} đã tồn tại trong lớp/phòng ${item.className}!` });
+        setDialogState({ type: "alert", message: "Trùng số báo danh nên không cho phép ghi nhận" });
         return;
       }
       logMessage = `Sửa Số Báo Danh: ${item.studentId} ➔ ${newValue}`;
@@ -2747,7 +2762,7 @@ export default function App() {
     } else if (type === "className") {
       const duplicate = scanHistory.find(h => h.className === newValue && h.studentId === item.studentId && h.id !== resultId);
       if (duplicate) {
-        setDialogState({ type: "alert", message: `Số báo danh ${item.studentId} đã tồn tại trong lớp/phòng ${newValue}!` });
+        setDialogState({ type: "alert", message: `Số báo danh ${item.studentId} đã tồn tại trong lớp/phòng ${newValue} nên không cho phép ghi nhận!` });
         return;
       }
       logMessage = `Sửa Lớp/Phòng: ${item.className} ➔ ${newValue}`;
