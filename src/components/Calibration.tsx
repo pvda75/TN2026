@@ -114,7 +114,10 @@ export default function Calibration({
 
   useEffect(() => {
     if (!customImageSrc) {
-      const savedImg = localStorage.getItem("omr_template_calibration_img");
+      let savedImg = null;
+      try {
+        savedImg = localStorage.getItem("omr_template_calibration_img");
+      } catch (e) {}
       if (savedImg) setTemplateImg(savedImg);
     }
   }, [customImageSrc]);

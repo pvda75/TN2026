@@ -189,7 +189,9 @@ try {
 const setQuotaExceeded = () => {
   firestoreQuotaExceeded = true;
   // Quota resets at midnight Pacific Time, but for safety just block for 24 hours locally
-  localStorage.setItem("firestoreQuotaExceededUntil", (Date.now() + 24 * 60 * 60 * 1000).toString());
+  try {
+    localStorage.setItem("firestoreQuotaExceededUntil", (Date.now() + 24 * 60 * 60 * 1000).toString());
+  } catch (e) {}
 };
 
 export default function App() {
@@ -204,16 +206,32 @@ export default function App() {
     | "STEP7_STATS"
   >("STEP3_SCAN");
 
+  const setSafeStorage = (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      console.warn("Failed to save to localStorage", key);
+    }
+  };
+
+  const getSafeStorage = (key: string, defaultValue: string | null = null) => {
+    try {
+      return localStorage.getItem(key) || defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
   const [userRole, setUserRole] = useState<"ADMIN" | "USER" | null>(() => {
-    return localStorage.getItem("app_user_role") as ("ADMIN" | "USER" | null) || null;
+    return getSafeStorage("app_user_role") as ("ADMIN" | "USER" | null) || null;
   });
   const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
-    return localStorage.getItem("app_current_user_id") || null;
+    return getSafeStorage("app_current_user_id");
   });
 
   const [appUsers, setAppUsers] = useState<any[]>(() => {
     try {
-      const saved = localStorage.getItem("app_users");
+      const saved = getSafeStorage("app_users");
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -228,7 +246,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem("app_users", JSON.stringify(appUsers));
+    setSafeStorage("app_users", JSON.stringify(appUsers));
   }, [appUsers]);
 
   const [loginUsername, setLoginUsername] = useState("");
@@ -251,8 +269,8 @@ export default function App() {
     if (user) {
       setUserRole(user.role);
       setCurrentUserId(user.id);
-      localStorage.setItem("app_user_role", user.role);
-      localStorage.setItem("app_current_user_id", user.id);
+      setSafeStorage("app_user_role", user.role);
+      setSafeStorage("app_current_user_id", user.id);
       setActiveTab(user.role === "ADMIN" ? "STEP1_SUBJECT" : "STEP3_SCAN");
     } else {
       setLoginError("Tài khoản/Mật khẩu không đúng.");
@@ -275,7 +293,7 @@ export default function App() {
   const [globalOMRTemplateImage, setGlobalOMRTemplateImage] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedConfig = localStorage.getItem("omr_calibration_config");
+    const savedConfig = getSafeStorage("omr_calibration_config");
     if (savedConfig) {
       try {
         let parsedConf = JSON.parse(savedConfig);
@@ -379,7 +397,7 @@ export default function App() {
           updated = true;
         }
         if (updated) {
-          localStorage.setItem(
+          setSafeStorage(
             "omr_calibration_config",
             JSON.stringify(parsedConf),
           );
@@ -391,7 +409,7 @@ export default function App() {
 
   // Step 0: Exam Sessions
   const [examSessions, setExamSessions] = useState<ExamSession[]>(() => {
-    const saved = localStorage.getItem("autograde_sessions");
+    const saved = getSafeStorage("autograde_sessions");
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -401,18 +419,18 @@ export default function App() {
   });
 
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    return localStorage.getItem("autograde_active_session") || "SESSION_DEFAULT";
+    return getSafeStorage("autograde_active_session", "SESSION_DEFAULT") as string;
   });
   const [isEditingSessions, setIsEditingSessions] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem("autograde_active_session", activeSessionId);
+    setSafeStorage("autograde_active_session", activeSessionId);
   }, [activeSessionId]);
 
 
   // Step 1: Subjects/Structures
   const [examStructures, setExamStructures] = useState<ExamStructure[]>(() => {
-    const saved = localStorage.getItem("autograde_structures");
+    const saved = getSafeStorage("autograde_structures");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -451,7 +469,7 @@ export default function App() {
   const [examConfigs, setExamConfigs] = useState<
     { structureId: string; key: ExamAnswers; name: string; code: string }[]
   >(() => {
-    const saved = localStorage.getItem("autograde_configs");
+    const saved = getSafeStorage("autograde_configs");
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) return parsed;
@@ -518,13 +536,21 @@ export default function App() {
 
   // Step 3: Scan
   const [classes, setClasses] = useState<string[]>(() => {
-    const saved = localStorage.getItem("autograde_classes");
-    return saved ? JSON.parse(saved) : ["12A1", "12A2"];
+    try {
+      const saved = getSafeStorage("autograde_classes");
+      return saved ? JSON.parse(saved) : ["12A1", "12A2"];
+    } catch {
+      return ["12A1", "12A2"];
+    }
   });
   const [activeClass, setActiveClass] = useState<string>(() => {
-    const saved = localStorage.getItem("autograde_classes");
-    const c = saved ? JSON.parse(saved) : ["12A1", "12A2"];
-    return c.length > 0 ? c[0] : "12A1";
+    try {
+      const saved = getSafeStorage("autograde_classes");
+      const c = saved ? JSON.parse(saved) : ["12A1", "12A2"];
+      return c.length > 0 ? c[0] : "12A1";
+    } catch {
+      return "12A1";
+    }
   });
   const [newClassName, setNewClassName] = useState("");
   const [showClassManager, setShowClassManager] = useState(false);
@@ -701,7 +727,7 @@ export default function App() {
         if (coreData.globalOMRConfig) setGlobalOMRConfig(coreData.globalOMRConfig);
         if (coreData.globalOMRTemplateImage) {
            setGlobalOMRTemplateImage(coreData.globalOMRTemplateImage);
-           localStorage.setItem("omr_template_calibration_img", coreData.globalOMRTemplateImage);
+           setSafeStorage("omr_template_calibration_img", coreData.globalOMRTemplateImage);
         }
       }
       initialFetchDone.current = true;
@@ -1037,27 +1063,27 @@ export default function App() {
   } | null>(null);
 
   useEffect(() => {
-    localStorage.setItem("autograde_sessions", JSON.stringify(examSessions));
+    setSafeStorage("autograde_sessions", JSON.stringify(examSessions));
   }, [examSessions]);
 
   useEffect(() => {
-    localStorage.setItem(
+    setSafeStorage(
       "autograde_structures",
       JSON.stringify(examStructures),
     );
   }, [examStructures]);
 
   useEffect(() => {
-    localStorage.setItem("autograde_configs", JSON.stringify(examConfigs));
+    setSafeStorage("autograde_configs", JSON.stringify(examConfigs));
   }, [examConfigs]);
 
   useEffect(() => {
-    localStorage.setItem("autograde_classes", JSON.stringify(classes));
+    setSafeStorage("autograde_classes", JSON.stringify(classes));
   }, [classes]);
 
   useEffect(() => {
     if (globalOMRConfig) {
-       localStorage.setItem("omr_calibration_config", JSON.stringify(globalOMRConfig));
+       setSafeStorage("omr_calibration_config", JSON.stringify(globalOMRConfig));
     }
   }, [globalOMRConfig]);
 
@@ -1718,7 +1744,7 @@ export default function App() {
       };
 
       const refs = referenceImages.filter((r) => r.base64).map((r) => r.base64);
-      const calibTemplate = localStorage.getItem(
+      const calibTemplate = getSafeStorage(
         "omr_template_calibration_img",
       );
       if (calibTemplate && refs.length === 0) {
@@ -2498,7 +2524,7 @@ export default function App() {
           .filter((r) => r.base64)
           .map((r) => r.base64);
 
-        const calibTemplate = localStorage.getItem(
+        const calibTemplate = getSafeStorage(
           "omr_template_calibration_img",
         );
         if (calibTemplate && refs.length === 0) {
@@ -5760,11 +5786,11 @@ export default function App() {
             initialConfig={globalOMRConfig}
             onSave={(cfg) => {
               setGlobalOMRConfig(cfg);
-              localStorage.setItem(
+              setSafeStorage(
                 "omr_calibration_config",
                 JSON.stringify(cfg),
               );
-              setGlobalOMRTemplateImage(localStorage.getItem("omr_template_calibration_img"));
+              setGlobalOMRTemplateImage(getSafeStorage("omr_template_calibration_img"));
               setActiveTab("STEP3_SCAN");
             }}
           />
