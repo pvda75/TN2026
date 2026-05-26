@@ -694,11 +694,13 @@ export default function App() {
   );
   const [imageSearchPhrase, setImageSearchPhrase] = useState("");
 
-  const examImages = images.filter(
-    (img) =>
-      img.examName === gradeExamName &&
-      img.classId === activeClass,
-  );
+  const examImages = [...images]
+    .filter(
+      (img) =>
+        img.examName === gradeExamName &&
+        img.classId === activeClass,
+    )
+    .sort((a, b) => parseFloat(a.id) - parseFloat(b.id));
 
   const displayedImages = examImages.filter((img) => {
     let matchFilter = true;
@@ -917,7 +919,7 @@ export default function App() {
              return rmt;
           });
           const localOnly = prev.filter(p => !remoteImages.find((r: any) => r.id === p.id) && ((p as any).isUploadingToFirebase || p.status === "processing"));
-          const finalImages = [...localOnly, ...merged];
+          const finalImages = [...merged, ...localOnly];
           // Update the cache immediately so loop terminates
           setSafeSessionStorage("last_synced_" + queueDocId, JSON.stringify(finalImages));
           return finalImages;
