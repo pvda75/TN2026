@@ -206,6 +206,30 @@ export default function App() {
     | "STEP7_STATS"
   >("STEP3_SCAN");
 
+  const sessionCacheMemory: Record<string, string> = {};
+
+  const setSafeSessionStorage = (key: string, value: string) => {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        sessionStorage.setItem(key, value);
+      }
+    } catch {
+      sessionCacheMemory[key] = value;
+      console.warn("Failed to save to sessionStorage, falling back to memory", key);
+    }
+  };
+
+  const getSafeSessionStorage = (key: string) => {
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        return sessionStorage.getItem(key) || sessionCacheMemory[key] || null;
+      }
+      return sessionCacheMemory[key] || null;
+    } catch {
+      return sessionCacheMemory[key] || null;
+    }
+  };
+
   const setSafeStorage = (key: string, value: string) => {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -285,8 +309,10 @@ export default function App() {
   const handleLogout = () => {
     setUserRole(null);
     setCurrentUserId(null);
-    localStorage.removeItem("app_user_role");
-    localStorage.removeItem("app_current_user_id");
+    try {
+      localStorage.removeItem("app_user_role");
+      localStorage.removeItem("app_current_user_id");
+    } catch {}
     setLoginUsername("");
     setLoginPassword("");
     setLoginError("");
@@ -738,7 +764,7 @@ export default function App() {
            }
         });
 
-        sessionStorage.setItem("last_synced_globals", JSON.stringify(coreData));
+        setSafeSessionStorage("last_synced_globals", JSON.stringify(coreData));
 
         if (coreData.appUsers && Array.isArray(coreData.appUsers)) setAppUsers(coreData.appUsers);
         if (coreData.classes && Array.isArray(coreData.classes)) setClasses(coreData.classes);
@@ -766,7 +792,7 @@ export default function App() {
          // Merge with existing images from localForage
          return histories.map(remoteItem => {
             const { imageSrc, originalImageSrc, ...metadataOnly } = remoteItem;
-            sessionStorage.setItem("sync_history_" + remoteItem.id, JSON.stringify(metadataOnly));
+            setSafeSessionStorage("sync_history_" + remoteItem.id, JSON.stringify(metadataOnly));
             const localItem = prevHistory.find(p => p.id === remoteItem.id);
             if (localItem && localItem.imageSrc) {
                return { ...remoteItem, imageSrc: localItem.imageSrc, originalImageSrc: localItem.originalImageSrc };
@@ -799,7 +825,7 @@ export default function App() {
          sortedSyncObj[k] = syncObj[k];
       });
       const currentGlobalStr = JSON.stringify(sortedSyncObj);
-      const lastSyncedGlobalStr = sessionStorage.getItem("last_synced_globals");
+      const lastSyncedGlobalStr = getSafeSessionStorage("last_synced_globals");
       if (currentGlobalStr === lastSyncedGlobalStr) return; // Skip if no real data changed
 
       if (firestoreQuotaExceeded) return;
@@ -818,7 +844,7 @@ export default function App() {
       if (firestoreQuotaExceeded) return;
 
       setDoc(doc(db, "globals", "appData"), pushData, { merge: true }).then(() => {
-        sessionStorage.setItem("last_synced_globals", currentGlobalStr);
+        setSafeSessionStorage("last_synced_globals", currentGlobalStr);
       }).catch((e: any) => {
         console.error("Firebase push error:", e);
         if (e?.code === 'resource-exhausted') {
@@ -843,11 +869,11 @@ export default function App() {
            const docRef = doc(db, "scanHistory", item.id);
            const { imageSrc, originalImageSrc, ...metadataOnly } = item;
            const metadataStr = JSON.stringify(metadataOnly);
-           const lastSynced = sessionStorage.getItem("sync_history_" + item.id);
+           const lastSynced = getSafeSessionStorage("sync_history_" + item.id);
            
            if (lastSynced !== metadataStr) {
                batch.set(docRef, metadataOnly);
-               sessionStorage.setItem("sync_history_" + item.id, metadataStr);
+               setSafeSessionStorage("sync_history_" + item.id, metadataStr);
                actualChanges++;
            }
            count++;
@@ -879,7 +905,7 @@ export default function App() {
       if (snapshot.exists()) {
         const remoteImages = snapshot.data().images || [];
         setImages(prev => {
-          const sessionCacheStr = sessionStorage.getItem("last_synced_" + queueDocId);
+          const sessionCacheStr = getSafeSessionStorage("last_synced_" + queueDocId);
           if (sessionCacheStr === JSON.stringify(remoteImages)) {
              return prev;
           }
@@ -893,7 +919,7 @@ export default function App() {
           const localOnly = prev.filter(p => !remoteImages.find((r: any) => r.id === p.id) && ((p as any).isUploadingToFirebase || p.status === "processing"));
           const finalImages = [...localOnly, ...merged];
           // Update the cache immediately so loop terminates
-          sessionStorage.setItem("last_synced_" + queueDocId, JSON.stringify(finalImages));
+          setSafeSessionStorage("last_synced_" + queueDocId, JSON.stringify(finalImages));
           return finalImages;
         });
       }
@@ -936,7 +962,7 @@ export default function App() {
       if (!allUrlsReady) return; 
       
       const currentStr = JSON.stringify(images);
-      const sessionCacheStr = sessionStorage.getItem("last_synced_" + queueDocId);
+      const sessionCacheStr = getSafeSessionStorage("last_synced_" + queueDocId);
       if (currentStr === sessionCacheStr) return;
 
       const safeImages = images.map(img => {
@@ -946,7 +972,7 @@ export default function App() {
       });
 
       setDoc(doc(db, "globals", queueDocId), { images: safeImages }, { merge: true }).then(() => {
-        sessionStorage.setItem("last_synced_" + queueDocId, currentStr);
+        setSafeSessionStorage("last_synced_" + queueDocId, currentStr);
       }).catch(console.error);
     }, 2000);
 
