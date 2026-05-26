@@ -3643,7 +3643,7 @@ export default function App() {
                           className={`relative border rounded-lg overflow-hidden flex flex-col bg-white shadow-sm transition-colors ${img.selected ? "border-indigo-500" : "border-slate-200"} ${img.status === "error" ? "border-red-300" : ""} ${img.status === "done" ? "border-green-400" : ""}`}
                         >
                           <div
-                            className="h-32 bg-slate-100 relative cursor-pointer"
+                            className="aspect-[1/1.414] bg-slate-100 relative cursor-pointer"
                             onClick={() => {
                               if (img.status === "processing") return;
                               setImages((prev) =>
@@ -3657,7 +3657,7 @@ export default function App() {
                           >
                             <img
                               src={img.src}
-                              className="w-full h-full object-contain"
+                              className="absolute inset-0 w-full h-full object-cover"
                             />
                             <div className="absolute top-2 left-2 flex gap-1">
                               <div
