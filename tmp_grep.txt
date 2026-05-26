@@ -1,0 +1,60 @@
+132:    studentId: { x: 456, y: 220, w: 220, h: 150, cols: 8, rows: 10, type: "single" },
+285:          parsedConf?.regions?.studentId &&
+286:          parsedConf.regions.studentId.cols === 6
+288:          parsedConf.regions.studentId.cols = 8;
+289:          parsedConf.regions.studentId.w = 220;
+630:      const studentId = (
+631:        img.result?.studentId ||
+632:        img.rawAnswers?.studentId ||
+645:          !studentId.includes(term) &&
+1482:        !item.studentId ||
+1483:        item.studentId === "Chưa rõ" ||
+1484:        item.studentId.includes("?") ||
+1491:      const validSBD = item.studentId && item.studentId !== "Chưa rõ" && !item.studentId.includes("?");
+1493:      const count = scanHistory.filter(x => x.studentId === item.studentId && x.className === item.className && x.examName === item.examName).length;
+1504:      const studentId = (item.studentId || "").toLowerCase();
+1510:        if (!studentId.includes(term) && !examCode.includes(term) && !className.includes(term) && !studentName.includes(term)) {
+1758:              studentId:
+1759:                cleanStudentAnswers?.studentId?.trim() || match.studentId,
+1812:      const sIdA = a.studentId || "";
+1813:      const sIdB = b.studentId || "";
+1824:        return `${stt},${item.studentId || ""},"",${item.className},${item.examCode || ""},${(item.score || 0).toFixed(2)},${timeStr}`;
+1875:      const sIdA = a.studentId || "";
+1876:      const sIdB = b.studentId || "";
+1886:      const rowData = [stt, item.studentId || "", "", item.className, item.examCode || "", (item.score || 0).toFixed(2), timeStr];
+1978:    ctx.fillText(`SBD: ${item.studentId || ""}`, 20, 56);
+2130:      const currentValStr = item.studentId || "";
+2222:        `Bai_Lam_${selectedResult.studentId}_${selectedResult.examCode}.pdf`,
+2280:                Môn: <strong>${item.examName}</strong> - SBD: <strong>${item.studentId}</strong> - Mã đề: <strong>${item.examCode}</strong>
+2358:        const sIdA = a.studentId || "";
+2359:        const sIdB = b.studentId || "";
+2476:            studentId: baseConf.regions.studentId,
+2671:            p.studentId === studentAnswers.studentId &&
+2690:          studentId: studentAnswers.studentId || "Chưa rõ",
+2715:           if (newRec.studentId && newRec.studentId !== "Chưa rõ") {
+2716:               const existing = prev.find(p => p.studentId === newRec.studentId && p.className === newRec.className && p.examName === newRec.examName && (p.sessionId || "SESSION_DEFAULT") === activeSessionId);
+2848:  const performUpdate = (resultId: string, type: "studentId" | "examCode" | "className", newValue: string, item: any) => {
+2852:    if (type === "studentId") {
+2853:      logMessage = `Sửa Số Báo Danh: ${item.studentId} ➔ ${newValue}`;
+2854:      newRaw.studentId = newValue;
+2886:      studentId: type === "studentId" ? newValue : item.studentId,
+2919:  const handleUpdateStudentInfo = async (resultId: string, type: "studentId" | "examCode" | "className", newValue: string) => {
+2927:    if (type === "studentId") {
+2928:      const duplicate = scanHistory.find(h => h.className === item.className && h.studentId === newValue && h.id !== resultId && (h.sessionId || "SESSION_DEFAULT") === (item.sessionId || "SESSION_DEFAULT"));
+2940:      const duplicate = scanHistory.find(h => h.className === newValue && h.studentId === item.studentId && h.id !== resultId && (h.sessionId || "SESSION_DEFAULT") === (item.sessionId || "SESSION_DEFAULT"));
+2942:        setDialogState({ type: "alert", message: `Số báo danh ${item.studentId} đã tồn tại trong lớp/phòng ${newValue} nên không cho phép ghi nhận!` });
+3716:                                  SBD: {img.result?.studentId} - Mã đề:{" "}
+3760:                                      value={img.rawAnswers.studentId || ""}
+3771:                                                    studentId: e.target.value,
+3930:                               defaultValue: selectedResult.studentId,
+3931:                               onConfirm: (val) => val && handleUpdateStudentInfo(selectedResult.id, "studentId", val)
+3934:                        {selectedResult.studentId}
+4106:                                      !h.studentId || 
+4107:                                      h.studentId === "Chưa rõ" || 
+4108:                                      h.studentId.includes("?") || 
+4115:                                    const validSBD = h.studentId && h.studentId !== "Chưa rõ" && !h.studentId.includes("?");
+4117:                                    const count = scanHistory.filter(x => x.studentId === h.studentId && x.className === h.className && x.examName === h.examName).length;
+4238:                                  {item.studentId === "Chưa rõ"
+4240:                                    : `SBD: ${item.studentId}`}
+4290:                              win.document.write(`<h2>Kết quả chấm bài: SBD ${selectedResult.studentId}</h2>`);
+4620:                                  selectedResult.studentId || "";

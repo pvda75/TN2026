@@ -2845,34 +2845,16 @@ export default function App() {
     }
   };
 
-  const handleUpdateStudentInfo = async (resultId: string, type: "studentId" | "examCode" | "className", newValue: string) => {
-    if (!newValue.trim()) {
-       setDialogState({ type: "alert", message: "Vui lòng nhập giá trị hợp lệ." });
-       return;
-    }
-    const item = scanHistory.find(i => i.id === resultId);
-    if (!item || !item.rawAnswers) return;
-
+  const performUpdate = (resultId: string, type: "studentId" | "examCode" | "className", newValue: string, item: any) => {
     let newRaw = JSON.parse(JSON.stringify(item.rawAnswers)); // deep clone
     let logMessage = "";
     
     if (type === "studentId") {
-      const duplicate = scanHistory.find(h => h.className === item.className && h.studentId === newValue && h.id !== resultId);
-      if (duplicate) {
-        setDialogState({ type: "alert", message: "Trùng số báo danh nên không cho phép ghi nhận" });
-        return;
-      }
       logMessage = `Sửa Số Báo Danh: ${item.studentId} ➔ ${newValue}`;
       newRaw.studentId = newValue;
     } else if (type === "className") {
-      const duplicate = scanHistory.find(h => h.className === newValue && h.studentId === item.studentId && h.id !== resultId);
-      if (duplicate) {
-        setDialogState({ type: "alert", message: `Số báo danh ${item.studentId} đã tồn tại trong lớp/phòng ${newValue} nên không cho phép ghi nhận!` });
-        return;
-      }
       logMessage = `Sửa Lớp/Phòng: ${item.className} ➔ ${newValue}`;
       setClasses(prev => prev.includes(newValue) ? prev : [...prev, newValue]);
-      // Note: className is not in rawAnswers but in item itself
     } else {
       logMessage = `Sửa Mã Đề: ${item.examCode} ➔ ${newValue}`;
       newRaw.examCode = newValue;
@@ -2932,6 +2914,36 @@ export default function App() {
     if (selectedResult && selectedResult.id === resultId) {
       setSelectedResult(updatedItem);
     }
+  };
+
+  const handleUpdateStudentInfo = async (resultId: string, type: "studentId" | "examCode" | "className", newValue: string) => {
+    if (!newValue.trim()) {
+       setDialogState({ type: "alert", message: "Vui lòng nhập giá trị hợp lệ." });
+       return;
+    }
+    const item = scanHistory.find(i => i.id === resultId);
+    if (!item || !item.rawAnswers) return;
+
+    if (type === "studentId") {
+      const duplicate = scanHistory.find(h => h.className === item.className && h.studentId === newValue && h.id !== resultId && (h.sessionId || "SESSION_DEFAULT") === (item.sessionId || "SESSION_DEFAULT"));
+      if (duplicate) {
+        setDialogState({ 
+          type: "confirm", 
+          message: `Trùng số báo danh (${newValue}) trong cùng lớp. Bạn có chắc chắn muốn cập nhật thành số báo danh này? (Hệ thống sẽ giữ lại cả 2 bài thi)`,
+          onConfirm: () => {
+            performUpdate(resultId, type, newValue, item);
+          }
+        });
+        return;
+      }
+    } else if (type === "className") {
+      const duplicate = scanHistory.find(h => h.className === newValue && h.studentId === item.studentId && h.id !== resultId && (h.sessionId || "SESSION_DEFAULT") === (item.sessionId || "SESSION_DEFAULT"));
+      if (duplicate) {
+        setDialogState({ type: "alert", message: `Số báo danh ${item.studentId} đã tồn tại trong lớp/phòng ${newValue} nên không cho phép ghi nhận!` });
+        return;
+      }
+    }
+    performUpdate(resultId, type, newValue, item);
   };
 
   const handleEditStructure = (struct: ExamStructure) => {
@@ -6117,14 +6129,15 @@ export default function App() {
                 )}
                 <button
                   onClick={() => {
-                    if (dialogState.onConfirm) {
+                    const currentDialog = dialogState;
+                    setDialogState(null);
+                    if (currentDialog.onConfirm) {
                        let val;
-                       if (dialogState.type === "prompt") {
+                       if (currentDialog.type === "prompt") {
                            val = (document.getElementById("dialog-prompt-input") as HTMLInputElement)?.value;
                        }
-                       dialogState.onConfirm(val);
+                       currentDialog.onConfirm(val);
                     }
-                    setDialogState(null);
                   }}
                   className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-indigo-700 transition"
                 >
