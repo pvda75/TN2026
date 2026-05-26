@@ -584,18 +584,26 @@ export default function App() {
 
   useEffect(() => {
     if (scannerConfig.show && scannerConfig.mode === "camera") {
-      navigator.mediaDevices?.enumerateDevices().then((devices) => {
-        const videoDevices = devices.filter(
-          (device) => device.kind === "videoinput",
-        );
-        setAvailableCameras(videoDevices);
-        if (videoDevices.length > 0 && !scannerConfig.deviceId) {
-          setScannerConfig((prev) => ({
-            ...prev,
-            deviceId: videoDevices[0].deviceId,
-          }));
-        }
-      });
+      const mediaPromise = navigator.mediaDevices?.enumerateDevices();
+      if (mediaPromise) {
+        mediaPromise.then((devices) => {
+          const videoDevices = devices.filter(
+            (device) => device.kind === "videoinput",
+          );
+          setAvailableCameras(videoDevices);
+          if (videoDevices.length > 0 && !scannerConfig.deviceId) {
+            setScannerConfig((prev) => ({
+              ...prev,
+              deviceId: videoDevices[0].deviceId,
+            }));
+          }
+        }).catch(err => {
+          console.error("Lỗi lấy danh sách camera", err);
+          setAvailableCameras([]);
+        });
+      } else {
+        setAvailableCameras([]);
+      }
     } else {
       setIsAutoScanning(false);
       if (autoScanTimerRef.current) clearInterval(autoScanTimerRef.current);
