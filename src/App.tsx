@@ -699,8 +699,7 @@ export default function App() {
       (img) =>
         img.examName === gradeExamName &&
         img.classId === activeClass,
-    )
-    .sort((a, b) => parseFloat(a.id) - parseFloat(b.id));
+    );
 
   const displayedImages = examImages.filter((img) => {
     let matchFilter = true;
@@ -913,15 +912,26 @@ export default function App() {
           }
           const merged = remoteImages.map((rmt: any) => {
              const local = prev.find(p => p.id === rmt.id);
-             if (local && ((local as any).isUploadingToFirebase || local.status === "processing")) {
-                return local;
+             if (local) {
+                if ((local as any).isUploadingToFirebase || local.status === "processing") {
+                   return local;
+                }
+                return {
+                   ...rmt,
+                   result: local.result && rmt.result ? {
+                      ...rmt.result,
+                      imageSrc: local.result.imageSrc || rmt.result.imageSrc,
+                      originalImageSrc: local.result.originalImageSrc || rmt.result.originalImageSrc
+                   } : rmt.result
+                };
              }
              return rmt;
           });
           const localOnly = prev.filter(p => !remoteImages.find((r: any) => r.id === p.id) && ((p as any).isUploadingToFirebase || p.status === "processing"));
           const finalImages = [...merged, ...localOnly];
           // Update the cache immediately so loop terminates
-          setSafeSessionStorage("last_synced_" + queueDocId, JSON.stringify(finalImages));
+          setSafeSessionStorage("last_synced_" + queueDocId, JSON.stringify(remoteImages));
+          setSafeSessionStorage("local_last_synced_" + queueDocId, JSON.stringify(finalImages));
           return finalImages;
         });
       }
@@ -964,17 +974,20 @@ export default function App() {
       if (!allUrlsReady) return; 
       
       const currentStr = JSON.stringify(images);
-      const sessionCacheStr = getSafeSessionStorage("last_synced_" + queueDocId);
-      if (currentStr === sessionCacheStr) return;
+      const localCacheStr = getSafeSessionStorage("local_last_synced_" + queueDocId);
+      if (currentStr === localCacheStr) return;
 
       const safeImages = images.map(img => {
           if (!img.result) return img;
           const { imageSrc, originalImageSrc, ...safeResult } = img.result;
           return { ...img, result: safeResult };
       });
+      
+      const safeImagesStr = JSON.stringify(safeImages);
 
       setDoc(doc(db, "globals", queueDocId), { images: safeImages }, { merge: true }).then(() => {
-        setSafeSessionStorage("last_synced_" + queueDocId, currentStr);
+        setSafeSessionStorage("local_last_synced_" + queueDocId, currentStr); // local loop prevention
+        setSafeSessionStorage("last_synced_" + queueDocId, safeImagesStr);    // snapshot loop prevention
       }).catch(console.error);
     }, 2000);
 
@@ -1144,15 +1157,6 @@ export default function App() {
       console.error("Failed to save history:", err);
     }
   }, [scanHistory]);
-
-  useEffect(() => {
-    if (!isLoadedRef.current) return;
-    try {
-      localforage.setItem("autograde_images", images);
-    } catch (err) {
-      console.error("Failed to save images:", err);
-    }
-  }, [images]);
 
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
