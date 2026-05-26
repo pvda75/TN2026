@@ -208,7 +208,9 @@ export default function App() {
 
   const setSafeStorage = (key: string, value: string) => {
     try {
-      localStorage.setItem(key, value);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(key, value);
+      }
     } catch {
       console.warn("Failed to save to localStorage", key);
     }
@@ -216,7 +218,10 @@ export default function App() {
 
   const getSafeStorage = (key: string, defaultValue: string | null = null) => {
     try {
-      return localStorage.getItem(key) || defaultValue;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        return localStorage.getItem(key) || defaultValue;
+      }
+      return defaultValue;
     } catch {
       return defaultValue;
     }
@@ -412,7 +417,8 @@ export default function App() {
     const saved = getSafeStorage("autograde_sessions");
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
       } catch (e) {}
     }
     return [{ id: "SESSION_DEFAULT", name: "Kỳ thi chung" }];
@@ -434,25 +440,27 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        return parsed.map((s: any) => ({
-          ...s,
-          part1: {
-            ...s.part1,
-            pointsPerQuestion:
-              s.part1?.pointsPerQuestion ?? s.part1?.points ?? 0.25,
-          },
-          part2: {
-            ...s.part2,
-            points: Array.isArray(s.part2?.points)
-              ? s.part2.points
-              : [0.1, 0.25, 0.5, s.part2?.points ?? 1.0],
-          },
-          part3: {
-            ...s.part3,
-            pointsPerQuestion:
-              s.part3?.pointsPerQuestion ?? s.part3?.points ?? 0.5,
-          },
-        }));
+        if (Array.isArray(parsed)) {
+          return parsed.map((s: any) => ({
+            ...s,
+            part1: {
+              ...s.part1,
+              pointsPerQuestion:
+                s.part1?.pointsPerQuestion ?? s.part1?.points ?? 0.25,
+            },
+            part2: {
+              ...s.part2,
+              points: Array.isArray(s.part2?.points)
+                ? s.part2.points
+                : [0.1, 0.25, 0.5, s.part2?.points ?? 1.0],
+            },
+            part3: {
+              ...s.part3,
+              pointsPerQuestion:
+                s.part3?.pointsPerQuestion ?? s.part3?.points ?? 0.5,
+            },
+          }));
+        }
       } catch (err) {
         console.error(err);
       }
@@ -471,9 +479,15 @@ export default function App() {
   >(() => {
     const saved = getSafeStorage("autograde_configs");
     if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed;
-      return Object.keys(parsed).map(k => ({ ...parsed[k], code: k }));
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed && typeof parsed === "object") {
+          return Object.keys(parsed).map(k => ({ ...parsed[k], code: k }));
+        }
+      } catch (e) {
+        console.warn("Failed to parse autograde_configs", e);
+      }
     }
     return [
       { structureId: "MATH", key: DEFAULT_MATH_KEY, name: "TOÁN HỌC", code: "1001" },
@@ -538,7 +552,11 @@ export default function App() {
   const [classes, setClasses] = useState<string[]>(() => {
     try {
       const saved = getSafeStorage("autograde_classes");
-      return saved ? JSON.parse(saved) : ["12A1", "12A2"];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      return ["12A1", "12A2"];
     } catch {
       return ["12A1", "12A2"];
     }
@@ -546,8 +564,11 @@ export default function App() {
   const [activeClass, setActiveClass] = useState<string>(() => {
     try {
       const saved = getSafeStorage("autograde_classes");
-      const c = saved ? JSON.parse(saved) : ["12A1", "12A2"];
-      return c.length > 0 ? c[0] : "12A1";
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed[0];
+      }
+      return "12A1";
     } catch {
       return "12A1";
     }
