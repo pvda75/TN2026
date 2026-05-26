@@ -885,7 +885,13 @@ export default function App() {
       const sessionCacheStr = sessionStorage.getItem("last_synced_scanQueue");
       if (currentStr === sessionCacheStr) return;
 
-      setDoc(doc(db, "globals", "scanQueue"), { images: images }, { merge: true }).then(() => {
+      const safeImages = images.map(img => {
+          if (!img.result) return img;
+          const { imageSrc, originalImageSrc, ...safeResult } = img.result;
+          return { ...img, result: safeResult };
+      });
+
+      setDoc(doc(db, "globals", "scanQueue"), { images: safeImages }, { merge: true }).then(() => {
         sessionStorage.setItem("last_synced_scanQueue", currentStr);
       }).catch(console.error);
     }, 2000);
@@ -973,14 +979,37 @@ export default function App() {
               timestamp: new Date(item.timestamp),
             };
           });
-          setScanHistory(parsed);
+          setScanHistory(prev => {
+              if (prev.length > 0 && prev.some(p => p.firebaseImageUrl || (p.timestamp && p.timestamp instanceof Date))) {
+                 // merge carefully: for items in parsed that have large imageSrc missing in remote, keep them
+                 const merged = [...prev];
+                 for (const p of parsed) {
+                     const idx = merged.findIndex(m => m.id === p.id);
+                     if (idx === -1) {
+                         merged.push(p);
+                     } else if (p.imageSrc && !merged[idx].imageSrc) {
+                         merged[idx] = { ...merged[idx], imageSrc: p.imageSrc, originalImageSrc: p.originalImageSrc };
+                     }
+                 }
+                 merged.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+                 return merged;
+              }
+              return parsed.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+          });
         }
 
         const savedImages =
           await localforage.getItem<ScannedImage[]>("autograde_images");
         if (isMounted && savedImages && Array.isArray(savedImages)) {
-          setImages(savedImages);
+          setImages(prev => {
+             // If we already synced from Firebase, keep the active/remote ones
+             if (prev.length > 0 && prev.some(p => p.firebaseImageUrl || p.src?.startsWith("http"))) {
+                 return prev;
+             }
+             return savedImages;
+          });
         }
+
       } catch (e) {
         console.error("Failed to load data from localforage", e);
       } finally {
