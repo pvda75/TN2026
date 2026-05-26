@@ -819,13 +819,12 @@ export default function App() {
   }, [scanHistory]);
   // FIREBASE SYNC: scanQueue
   useEffect(() => {
-    if (userRole !== "ADMIN") return;
-    
-    const unsubScanQueue = onSnapshot(doc(db, "globals", "scanQueue"), (snapshot) => {
+    const queueDocId = "scanQueue_" + (currentUserId || "unknown");
+    const unsubScanQueue = onSnapshot(doc(db, "globals", queueDocId), (snapshot) => {
       if (snapshot.exists()) {
         const remoteImages = snapshot.data().images || [];
         setImages(prev => {
-          const sessionCacheStr = sessionStorage.getItem("last_synced_scanQueue");
+          const sessionCacheStr = sessionStorage.getItem("last_synced_" + queueDocId);
           if (sessionCacheStr === JSON.stringify(remoteImages)) {
              return prev;
           }
@@ -839,19 +838,19 @@ export default function App() {
           const localOnly = prev.filter(p => !remoteImages.find((r: any) => r.id === p.id) && ((p as any).isUploadingToFirebase || p.status === "processing"));
           const finalImages = [...localOnly, ...merged];
           // Update the cache immediately so loop terminates
-          sessionStorage.setItem("last_synced_scanQueue", JSON.stringify(finalImages));
+          sessionStorage.setItem("last_synced_" + queueDocId, JSON.stringify(finalImages));
           return finalImages;
         });
       }
     });
 
     return () => unsubScanQueue();
-  }, [userRole]);
+  }, [currentUserId, userRole]);
 
   // background sync scan queue 'images' to storage and firestore
   useEffect(() => {
-    if (userRole !== "ADMIN") return;
     if (!initialFetchDone.current) return;
+    const queueDocId = "scanQueue_" + (currentUserId || "unknown");
 
     // 1. Upload base64 src to firebaseImageUrl
     const itemsToUpload = images.filter(img => img.src && img.src.startsWith("data:") && !img.firebaseImageUrl && !(img as any).isUploadingToFirebase);
@@ -866,7 +865,7 @@ export default function App() {
       setImages(newImages);
 
       for (const item of itemsToUpload) {
-        uploadBase64ToStorage(`scanQueue/${item.id}.jpg`, item.src).then(url => {
+        uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src).then(url => {
           setImages(prev => prev.map(p => p.id === item.id ? { ...p, firebaseImageUrl: url, src: url, isUploadingToFirebase: false } as any : p));
         }).catch(e => {
           console.error("Queue upload failed", e);
@@ -882,7 +881,7 @@ export default function App() {
       if (!allUrlsReady) return; 
       
       const currentStr = JSON.stringify(images);
-      const sessionCacheStr = sessionStorage.getItem("last_synced_scanQueue");
+      const sessionCacheStr = sessionStorage.getItem("last_synced_" + queueDocId);
       if (currentStr === sessionCacheStr) return;
 
       const safeImages = images.map(img => {
@@ -891,13 +890,13 @@ export default function App() {
           return { ...img, result: safeResult };
       });
 
-      setDoc(doc(db, "globals", "scanQueue"), { images: safeImages }, { merge: true }).then(() => {
-        sessionStorage.setItem("last_synced_scanQueue", currentStr);
+      setDoc(doc(db, "globals", queueDocId), { images: safeImages }, { merge: true }).then(() => {
+        sessionStorage.setItem("last_synced_" + queueDocId, currentStr);
       }).catch(console.error);
     }, 2000);
 
     return () => clearTimeout(timeout);
-  }, [images, userRole]);
+  }, [images, currentUserId, userRole]);
 
   // background sync images to storage
   useEffect(() => {
