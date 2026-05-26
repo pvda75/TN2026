@@ -817,6 +817,82 @@ export default function App() {
 
     return () => clearTimeout(timeout);
   }, [scanHistory]);
+  // FIREBASE SYNC: scanQueue
+  useEffect(() => {
+    if (userRole !== "ADMIN") return;
+    
+    const unsubScanQueue = onSnapshot(doc(db, "globals", "scanQueue"), (snapshot) => {
+      if (snapshot.exists()) {
+        const remoteImages = snapshot.data().images || [];
+        setImages(prev => {
+          const sessionCacheStr = sessionStorage.getItem("last_synced_scanQueue");
+          if (sessionCacheStr === JSON.stringify(remoteImages)) {
+             return prev;
+          }
+          const merged = remoteImages.map((rmt: any) => {
+             const local = prev.find(p => p.id === rmt.id);
+             if (local && ((local as any).isUploadingToFirebase || local.status === "processing")) {
+                return local;
+             }
+             return rmt;
+          });
+          const localOnly = prev.filter(p => !remoteImages.find((r: any) => r.id === p.id) && ((p as any).isUploadingToFirebase || p.status === "processing"));
+          const finalImages = [...localOnly, ...merged];
+          // Update the cache immediately so loop terminates
+          sessionStorage.setItem("last_synced_scanQueue", JSON.stringify(finalImages));
+          return finalImages;
+        });
+      }
+    });
+
+    return () => unsubScanQueue();
+  }, [userRole]);
+
+  // background sync scan queue 'images' to storage and firestore
+  useEffect(() => {
+    if (userRole !== "ADMIN") return;
+    if (!initialFetchDone.current) return;
+
+    // 1. Upload base64 src to firebaseImageUrl
+    const itemsToUpload = images.filter(img => img.src && img.src.startsWith("data:") && !img.firebaseImageUrl && !(img as any).isUploadingToFirebase);
+    if (itemsToUpload.length > 0) {
+      const newImages = [...images];
+      for (const item of itemsToUpload) {
+        const idx = newImages.findIndex(x => x.id === item.id);
+        if (idx !== -1) {
+          newImages[idx] = { ...newImages[idx], isUploadingToFirebase: true } as any;
+        }
+      }
+      setImages(newImages);
+
+      for (const item of itemsToUpload) {
+        uploadBase64ToStorage(`scanQueue/${item.id}.jpg`, item.src).then(url => {
+          setImages(prev => prev.map(p => p.id === item.id ? { ...p, firebaseImageUrl: url, src: url, isUploadingToFirebase: false } as any : p));
+        }).catch(e => {
+          console.error("Queue upload failed", e);
+          setImages(prev => prev.map(p => p.id === item.id ? { ...p, isUploadingToFirebase: false } as any : p));
+        });
+      }
+    }
+
+    // 2. Sync metadata to Firestore
+    const timeout = setTimeout(() => {
+      if (firestoreQuotaExceeded) return;
+      const allUrlsReady = images.every(img => !img.src || !img.src.startsWith("data:") || img.firebaseImageUrl);
+      if (!allUrlsReady) return; 
+      
+      const currentStr = JSON.stringify(images);
+      const sessionCacheStr = sessionStorage.getItem("last_synced_scanQueue");
+      if (currentStr === sessionCacheStr) return;
+
+      setDoc(doc(db, "globals", "scanQueue"), { images: images }, { merge: true }).then(() => {
+        sessionStorage.setItem("last_synced_scanQueue", currentStr);
+      }).catch(console.error);
+    }, 2000);
+
+    return () => clearTimeout(timeout);
+  }, [images, userRole]);
+
   // background sync images to storage
   useEffect(() => {
     const uploadImages = async () => {
@@ -2300,6 +2376,7 @@ export default function App() {
         // Tiền xử lý ảnh
         const processedDataUrl = await new Promise<string>((resolve) => {
           const img = new Image();
+          img.crossOrigin = "anonymous";
           img.onload = () => {
             const canvas = document.createElement("canvas");
             const MAX_WIDTH = 1200;

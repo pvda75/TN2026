@@ -20,7 +20,7 @@ export interface RegionConfig {
   h: number;
   cols: number;
   rows: number;
-  type: 'single' | 'multiple' | 'text'; // single: chọn 1 ô đậm nhất, multiple: chọn nhiều ô (Đ/S)
+  type: 'single' | 'multiple' | 'text' | 'truefalse'; // single: chọn 1 ô đậm nhất, multiple: chọn nhiều ô (Đ/S)
   markers?: {x: number, y: number}[]; // Các điểm neo nhỏ của vùng
 }
 
