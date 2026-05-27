@@ -6,7 +6,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
 import localforage from "localforage";
-import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, disableNetwork } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, terminate } from "firebase/firestore";
 import { db, uploadBase64ToStorage, deleteImageFromStorage } from "./firebase";
 import * as XLSX from "xlsx";
 import {
@@ -183,6 +183,7 @@ try {
   const quotaExceededUntil = localStorage.getItem("firestoreQuotaExceededUntil");
   if (quotaExceededUntil && parseInt(quotaExceededUntil) > Date.now()) {
      firestoreQuotaExceeded = true;
+     terminate(db).catch(console.error);
   }
 } catch (e) { }
 
@@ -193,6 +194,8 @@ const setQuotaExceeded = () => {
     localStorage.setItem("firestoreQuotaExceededUntil", (Date.now() + 24 * 60 * 60 * 1000).toString());
   } catch (e) {}
 };
+
+const sessionCacheMemory: Record<string, string> = {};
 
 export default function App() {
 
@@ -206,15 +209,15 @@ export default function App() {
     | "STEP7_STATS"
   >("STEP3_SCAN");
 
-  const sessionCacheMemory: Record<string, string> = {};
-
   const setSafeSessionStorage = (key: string, value: string) => {
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
         sessionStorage.setItem(key, value);
+        delete sessionCacheMemory[key];
       }
     } catch {
       sessionCacheMemory[key] = value;
+      try { sessionStorage.removeItem(key); } catch {}
       console.warn("Failed to save to sessionStorage, falling back to memory", key);
     }
   };
@@ -222,7 +225,7 @@ export default function App() {
   const getSafeSessionStorage = (key: string) => {
     try {
       if (typeof window !== 'undefined' && window.sessionStorage) {
-        return sessionStorage.getItem(key) || sessionCacheMemory[key] || null;
+        return sessionCacheMemory[key] || sessionStorage.getItem(key) || null;
       }
       return sessionCacheMemory[key] || null;
     } catch {
@@ -307,6 +310,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    isLoadedRef.current = false;
+    isLoggingOutRef.current = true;
     // 1. Snapshot state for background sync
     const uid = currentUserId;
     const backupImages = [...images];
@@ -357,8 +362,15 @@ export default function App() {
           return { ...safeImg, result: safeResult };
        });
        const cleanSafeImages = JSON.parse(JSON.stringify(safeImages));
+       if (firestoreQuotaExceeded) return;
        setDoc(doc(db, "globals", queueDocId), { images: cleanSafeImages }, { merge: true })
-         .catch(e => console.error("Flush queue on logout error", e));
+         .catch(e => {
+            console.error("Flush queue on logout error", e);
+            if (e?.code === 'resource-exhausted') {
+               setQuotaExceeded();
+               terminate(db).catch(console.error);
+            }
+         });
     }
 
     if (uid && backupScanHistory.length > 0) {
@@ -379,13 +391,27 @@ export default function App() {
          if (actualChanges >= 490) break; // keep under batch limit
       }
       if (actualChanges > 0) {
-         batch.commit().catch(e => console.error("Flush history on logout error", e));
+         if (firestoreQuotaExceeded) return;
+         batch.commit().catch(e => {
+            console.error("Flush history on logout error", e);
+            if (e?.code === 'resource-exhausted') {
+               setQuotaExceeded();
+               terminate(db).catch(console.error);
+            }
+         });
       }
     }
 
     if (currentGlobalStr !== lastSyncedGlobal) {
+       if (firestoreQuotaExceeded) return;
        setDoc(doc(db, "globals", "appData"), JSON.parse(currentGlobalStr), { merge: true })
-         .catch(e => console.error("Flush globals on logout error", e));
+         .catch(e => {
+            console.error("Flush globals on logout error", e);
+            if (e?.code === 'resource-exhausted') {
+               setQuotaExceeded();
+               terminate(db).catch(console.error);
+            }
+         });
     }
   };
 
@@ -824,6 +850,7 @@ export default function App() {
   const [imageZoomLevel, setImageZoomLevel] = useState<number>(0.75);
 
   const isLoadedRef = useRef(false);
+  const isLoggingOutRef = useRef(false);
   // --- FIREBASE SYNC: Globals ---
   const initialFetchDone = useRef(false);
   const initialHistoryFetchDone = useRef(false);
@@ -857,8 +884,12 @@ export default function App() {
         }
       }
       initialFetchDone.current = true;
-    }, (error) => {
+    }, (error: any) => {
       console.error("Firebase globals sync error:", error);
+      if (error?.code === 'resource-exhausted') {
+         setQuotaExceeded();
+         terminate(db).catch(console.error);
+      }
     });
     
     // Subscribe to scanHistory
@@ -892,6 +923,12 @@ export default function App() {
          });
       });
       initialHistoryFetchDone.current = true;
+    }, (error: any) => {
+      console.error("Firebase history sync error:", error);
+      if (error?.code === 'resource-exhausted') {
+         setQuotaExceeded();
+         terminate(db).catch(console.error);
+      }
     });
 
     return () => {
@@ -942,7 +979,7 @@ export default function App() {
         console.error("Firebase push error:", e);
         if (e?.code === 'resource-exhausted') {
            setQuotaExceeded();
-           disableNetwork(db).catch(console.error);
+           terminate(db).catch(console.error);
         }
       });
     }, 2000); // 2 second debounce
@@ -986,7 +1023,7 @@ export default function App() {
         console.error("Firebase batch commit error", e);
         if (e?.code === 'resource-exhausted') {
            setQuotaExceeded();
-           disableNetwork(db).catch(console.error);
+           terminate(db).catch(console.error);
         }
       }
     };
@@ -1042,6 +1079,12 @@ export default function App() {
         });
       }
       initialQueueFetchDone.current = true;
+    }, (error: any) => {
+      console.error("Firebase scan queue sync error:", error);
+      if (error?.code === 'resource-exhausted') {
+         setQuotaExceeded();
+         terminate(db).catch(console.error);
+      }
     });
 
     return () => unsubScanQueue();
@@ -1098,6 +1141,7 @@ export default function App() {
       const snapshotOfUnpushed = new Set(images.map((i: any) => i.id));
       const snapshotOfDeleted = new Set(deletedImageIds.current);
       
+      if (firestoreQuotaExceeded) return;
       setDoc(doc(db, "globals", queueDocId), { images: cleanSafeImages }, { merge: true }).then(() => {
         setSafeSessionStorage("local_last_synced_" + queueDocId, currentStr); // local loop prevention
         setSafeSessionStorage("last_synced_" + queueDocId, safeImagesStr);    // snapshot loop prevention
@@ -1107,7 +1151,13 @@ export default function App() {
         snapshotOfDeleted.forEach(id => deletedImageIds.current.delete(id));
         localStorage.setItem("unpushed_image_ids", JSON.stringify(Array.from(unpushedImageIds.current)));
         localStorage.setItem("deleted_image_ids", JSON.stringify(Array.from(deletedImageIds.current)));
-      }).catch(console.error);
+      }).catch(e => {
+         console.error(e);
+         if (e?.code === 'resource-exhausted') {
+            setQuotaExceeded();
+            terminate(db).catch(console.error);
+         }
+      });
     }, 2000);
 
     return () => clearTimeout(timeout);
@@ -1280,7 +1330,7 @@ export default function App() {
   }, [globalOMRConfig]);
 
   useEffect(() => {
-    if (!isLoadedRef.current) return;
+    if (!isLoadedRef.current || isLoggingOutRef.current) return;
     try {
       localforage.setItem("autograde_history", scanHistory);
     } catch (err) {
@@ -1289,7 +1339,7 @@ export default function App() {
   }, [scanHistory]);
 
   useEffect(() => {
-    if (!isLoadedRef.current) return;
+    if (!isLoadedRef.current || isLoggingOutRef.current) return;
     try {
       localforage.setItem("autograde_images", images);
     } catch (err) {
@@ -1795,7 +1845,7 @@ export default function App() {
       console.error("Failed to delete from Firebase:", e);
       if (e?.code === 'resource-exhausted') {
          setQuotaExceeded();
-         disableNetwork(db).catch(console.error);
+         terminate(db).catch(console.error);
       }
     }
 
@@ -2985,6 +3035,7 @@ export default function App() {
         
         if (toRemove.size > 0 && !firestoreQuotaExceeded) {
            try {
+              if (firestoreQuotaExceeded) return;
               const batch = writeBatch(db);
               toRemove.forEach((id) => {
                  batch.delete(doc(db, "scanHistory", id as string));
@@ -2993,7 +3044,7 @@ export default function App() {
                   console.error("Firebase deletion match commit error", e);
                   if (e?.code === 'resource-exhausted') {
                      setQuotaExceeded();
-                     disableNetwork(db).catch(console.error);
+                     terminate(db).catch(console.error);
                   }
               });
            } catch(e) {
