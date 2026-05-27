@@ -6,7 +6,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
 import localforage from "localforage";
-import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, terminate, setLogLevel } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, terminate, setLogLevel, disableNetwork } from "firebase/firestore";
 import { db, uploadBase64ToStorage, deleteImageFromStorage } from "./firebase";
 import * as XLSX from "xlsx";
 import {
@@ -180,11 +180,21 @@ export interface ScannedImage {
 
 let firestoreQuotaExceeded = false;
 try {
-  localStorage.removeItem("firestoreQuotaExceededUntil");
-} catch (e) {}
+  const quotaExceededUntil = localStorage.getItem("firestoreQuotaExceededUntil");
+  if (quotaExceededUntil && parseInt(quotaExceededUntil) > Date.now()) {
+     firestoreQuotaExceeded = true;
+     setLogLevel('silent');
+     disableNetwork(db).catch(() => {});
+     terminate(db).catch(() => {});
+  }
+} catch (e) { }
 const setQuotaExceeded = () => {
   firestoreQuotaExceeded = true;
   setLogLevel('silent');
+  disableNetwork(db).catch(() => {});
+  try {
+    localStorage.setItem("firestoreQuotaExceededUntil", (Date.now() + 24 * 60 * 60 * 1000).toString());
+  } catch (e) {}
 };
 
 const sessionCacheMemory: Record<string, string> = {};
@@ -3085,13 +3095,15 @@ export default function App() {
               toRemove.forEach((id) => {
                  batch.delete(doc(db, "scanHistory", id as string));
               });
-              batch.commit().catch(e => {
+              if (!firestoreQuotaExceeded) {
+                batch.commit().catch(e => {
                   console.error("Firebase deletion match commit error", e);
                   if (e?.code === 'resource-exhausted') {
                      setQuotaExceeded();
                      terminate(db).catch(() => {});
                   }
-              });
+                });
+              }
            } catch(e) {
               console.error(e);
            }
@@ -3423,6 +3435,11 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans flex flex-col pt-2 sm:pt-4">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col items-center justify-center sticky top-0 z-20 shadow-sm gap-4">
+        {firestoreQuotaExceeded && (
+          <div className="w-full bg-amber-50 border border-amber-300 text-amber-800 p-3 rounded-lg text-sm text-center shadow-sm">
+            <span className="font-bold">Hệ thống đang tạm ngừng đồng bộ lên mây</span> do đã đạt giới hạn miễn phí của ngày hôm nay. Dữ liệu của bạn vẫn được <span className="font-bold">lưu an toàn trên máy này</span> và sẽ tự động đồng bộ khi hệ thống hồi phục.
+          </div>
+        )}
         <div className="flex items-center gap-3 group cursor-default">
           <div className="group-hover:animate-bounce transition-all">
             <div className="w-10 h-10 bg-red-600 rounded-xl shadow-md rotate-3 flex items-center justify-center shrink-0 transition-transform group-hover:scale-110">

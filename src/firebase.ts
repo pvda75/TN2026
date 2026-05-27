@@ -1,11 +1,20 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, disableNetwork, setLogLevel } from 'firebase/firestore';
 import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+try {
+  const quotaExceededUntil = localStorage.getItem("firestoreQuotaExceededUntil");
+  if (quotaExceededUntil && parseInt(quotaExceededUntil) > Date.now()) {
+    setLogLevel('silent');
+    disableNetwork(db).catch(() => {});
+  }
+} catch (e) {}
+
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
