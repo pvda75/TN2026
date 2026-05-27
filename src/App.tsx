@@ -6,7 +6,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
 import localforage from "localforage";
-import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, terminate } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, collection, getDocs, writeBatch, terminate, setLogLevel } from "firebase/firestore";
 import { db, uploadBase64ToStorage, deleteImageFromStorage } from "./firebase";
 import * as XLSX from "xlsx";
 import {
@@ -180,19 +180,11 @@ export interface ScannedImage {
 
 let firestoreQuotaExceeded = false;
 try {
-  const quotaExceededUntil = localStorage.getItem("firestoreQuotaExceededUntil");
-  if (quotaExceededUntil && parseInt(quotaExceededUntil) > Date.now()) {
-     firestoreQuotaExceeded = true;
-     terminate(db).catch(console.error);
-  }
-} catch (e) { }
-
+  localStorage.removeItem("firestoreQuotaExceededUntil");
+} catch (e) {}
 const setQuotaExceeded = () => {
   firestoreQuotaExceeded = true;
-  // Quota resets at midnight Pacific Time, but for safety just block for 24 hours locally
-  try {
-    localStorage.setItem("firestoreQuotaExceededUntil", (Date.now() + 24 * 60 * 60 * 1000).toString());
-  } catch (e) {}
+  setLogLevel('silent');
 };
 
 const sessionCacheMemory: Record<string, string> = {};
@@ -368,7 +360,7 @@ export default function App() {
             console.error("Flush queue on logout error", e);
             if (e?.code === 'resource-exhausted') {
                setQuotaExceeded();
-               terminate(db).catch(console.error);
+               terminate(db).catch(() => {});
             }
          });
     }
@@ -396,7 +388,7 @@ export default function App() {
             console.error("Flush history on logout error", e);
             if (e?.code === 'resource-exhausted') {
                setQuotaExceeded();
-               terminate(db).catch(console.error);
+               terminate(db).catch(() => {});
             }
          });
       }
@@ -409,7 +401,7 @@ export default function App() {
             console.error("Flush globals on logout error", e);
             if (e?.code === 'resource-exhausted') {
                setQuotaExceeded();
-               terminate(db).catch(console.error);
+               terminate(db).catch(() => {});
             }
          });
     }
@@ -856,11 +848,12 @@ export default function App() {
   const initialHistoryFetchDone = useRef(false);
   const initialQueueFetchDone = useRef(false);
   useEffect(() => {
+    if (firestoreQuotaExceeded) {
+       initialFetchDone.current = true;
+       initialHistoryFetchDone.current = true;
+       return () => {};
+    }
     const unsub = onSnapshot(doc(db, "globals", "appData"), (snapshot) => {
-      if (firestoreQuotaExceeded) {
-         initialFetchDone.current = true;
-         return;
-      }
       if (snapshot.exists()) {
         const data = snapshot.data();
         const { updatedAt, ...coreDataUnsorted } = data;
@@ -892,16 +885,12 @@ export default function App() {
       console.error("Firebase globals sync error:", error);
       if (error?.code === 'resource-exhausted') {
          setQuotaExceeded();
-         terminate(db).catch(console.error);
+         terminate(db).catch(() => {});
       }
     });
     
     // Subscribe to scanHistory
     const unsubHistory = onSnapshot(collection(db, "scanHistory"), (snapshot) => {
-      if (firestoreQuotaExceeded) {
-          initialHistoryFetchDone.current = true;
-          return;
-      }
       setScanHistory(prevHistory => {
          let nextHistory = [...prevHistory];
          snapshot.docChanges().forEach(change => {
@@ -951,7 +940,7 @@ export default function App() {
       console.error("Firebase history sync error:", error);
       if (error?.code === 'resource-exhausted') {
          setQuotaExceeded();
-         terminate(db).catch(console.error);
+         terminate(db).catch(() => {});
       }
     });
 
@@ -1003,7 +992,7 @@ export default function App() {
         console.error("Firebase push error:", e);
         if (e?.code === 'resource-exhausted') {
            setQuotaExceeded();
-           terminate(db).catch(console.error);
+           terminate(db).catch(() => {});
         }
       });
     }, 2000); // 2 second debounce
@@ -1015,39 +1004,48 @@ export default function App() {
     const backupToFirebase = async () => {
       if (firestoreQuotaExceeded) return;
       try {
+        const snapshotOfUnpushed = new Set(unpushedHistoryIds.current);
+        if (snapshotOfUnpushed.size === 0) return;
+        
         const batch = writeBatch(db);
         let count = 0;
         let actualChanges = 0;
         
-        for (const item of scanHistory) {
+        const itemsToSync = scanHistory.filter(h => snapshotOfUnpushed.has(h.id));
+        
+        for (const item of itemsToSync) {
            const docRef = doc(db, "scanHistory", item.id);
            const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } = item as any;
            const metadataStr = JSON.stringify(metadataOnly);
-           const lastSynced = getSafeSessionStorage("sync_history_" + item.id);
            
-           if (lastSynced !== metadataStr) {
-               // Parse back to remove undefined properties which Firestore rejects
-               const cleanMetadata = JSON.parse(metadataStr);
-               // Restore timestamp as Date if it existed natively
-               if (metadataOnly.timestamp instanceof Date) {
-                   cleanMetadata.timestamp = metadataOnly.timestamp;
-               }
-               batch.set(docRef, cleanMetadata);
-               setSafeSessionStorage("sync_history_" + item.id, metadataStr);
-               actualChanges++;
+           // Parse back to remove undefined properties which Firestore rejects
+           const cleanMetadata = JSON.parse(metadataStr);
+           // Restore timestamp as Date if it existed natively
+           if (metadataOnly.timestamp instanceof Date) {
+               cleanMetadata.timestamp = metadataOnly.timestamp;
            }
+           batch.set(docRef, cleanMetadata);
+           setSafeSessionStorage("sync_history_" + item.id, metadataStr);
+           actualChanges++;
+           
            count++;
            if (actualChanges >= 490) break; 
         }
         if (actualChanges > 0) {
            if (firestoreQuotaExceeded) return;
            await batch.commit();
+           
+           // Clear successfully pushed items
+           itemsToSync.slice(0, actualChanges).forEach(item => {
+              unpushedHistoryIds.current.delete(item.id);
+           });
+           localStorage.setItem("unpushed_history_ids", JSON.stringify(Array.from(unpushedHistoryIds.current)));
         }
       } catch (e: any) {
         console.error("Firebase batch commit error", e);
         if (e?.code === 'resource-exhausted') {
            setQuotaExceeded();
-           terminate(db).catch(console.error);
+           terminate(db).catch(() => {});
         }
       }
     };
@@ -1061,12 +1059,12 @@ export default function App() {
   // FIREBASE SYNC: scanQueue
   useEffect(() => {
     initialQueueFetchDone.current = false;
+    if (firestoreQuotaExceeded) {
+        initialQueueFetchDone.current = true;
+        return () => {};
+    }
     const queueDocId = "scanQueue_" + (currentUserId || "unknown");
     const unsubScanQueue = onSnapshot(doc(db, "globals", queueDocId), (snapshot) => {
-      if (firestoreQuotaExceeded) {
-          initialQueueFetchDone.current = true;
-          return;
-      }
       if (snapshot.exists()) {
         const remoteImages = snapshot.data().images || [];
         setImages(prev => {
@@ -1111,7 +1109,7 @@ export default function App() {
       console.error("Firebase scan queue sync error:", error);
       if (error?.code === 'resource-exhausted') {
          setQuotaExceeded();
-         terminate(db).catch(console.error);
+         terminate(db).catch(() => {});
       }
     });
 
@@ -1183,7 +1181,7 @@ export default function App() {
          console.error(e);
          if (e?.code === 'resource-exhausted') {
             setQuotaExceeded();
-            terminate(db).catch(console.error);
+            terminate(db).catch(() => {});
          }
       });
     }, 2000);
@@ -1390,6 +1388,7 @@ export default function App() {
 
   const deletedImageIds = useRef<Set<string>>(getSetFromStorage("deleted_image_ids"));
   const unpushedImageIds = useRef<Set<string>>(getSetFromStorage("unpushed_image_ids"));
+  const unpushedHistoryIds = useRef<Set<string>>(getSetFromStorage("unpushed_history_ids"));
 
   const addDeletedImageId = (id: string) => {
     deletedImageIds.current.add(id);
@@ -1401,11 +1400,18 @@ export default function App() {
     localStorage.setItem("unpushed_image_ids", JSON.stringify(Array.from(unpushedImageIds.current)));
   };
 
+  const addUnpushedHistoryId = (id: string) => {
+    unpushedHistoryIds.current.add(id);
+    localStorage.setItem("unpushed_history_ids", JSON.stringify(Array.from(unpushedHistoryIds.current)));
+  };
+
   const clearImageTracking = () => {
      deletedImageIds.current.clear();
      unpushedImageIds.current.clear();
+     unpushedHistoryIds.current.clear();
      localStorage.removeItem("deleted_image_ids");
      localStorage.removeItem("unpushed_image_ids");
+     localStorage.removeItem("unpushed_history_ids");
   };
 
   const getStructureLabel = (id: string) => {
@@ -1651,9 +1657,13 @@ export default function App() {
     });
 
     setScanHistory((prev) => {
-      const next = prev.map((item) =>
-        item.className === oldName ? { ...item, className: newName } : item,
-      );
+      const next = prev.map((item) => {
+        if (item.className === oldName) {
+           addUnpushedHistoryId(item.id);
+           return { ...item, className: newName, updatedAt: Date.now() };
+        }
+        return item;
+      });
       localforage.setItem("autograde_history", next);
       return next;
     });
@@ -1873,7 +1883,7 @@ export default function App() {
       console.error("Failed to delete from Firebase:", e);
       if (e?.code === 'resource-exhausted') {
          setQuotaExceeded();
-         terminate(db).catch(console.error);
+         terminate(db).catch(() => {});
       }
     }
 
@@ -1943,6 +1953,9 @@ export default function App() {
       }
       return item;
     });
+    
+    selectedHistoryIds.forEach(id => addUnpushedHistoryId(id));
+    
     setScanHistory(newHistory);
     setSelectedHistoryIds([]);
     if (selectedResult && selectedHistoryIds.includes(selectedResult.id)) {
@@ -2103,6 +2116,7 @@ export default function App() {
             };
 
             setScanHistory((prev) => {
+              addUnpushedHistoryId(resultId);
               const next = prev.map((p) =>
                 p.id === resultId ? updatedItem : p,
               );
@@ -3056,6 +3070,7 @@ export default function App() {
       setScanHistory((prev) => {
         const toRemove = new Set(oldHistoryIdsToRemove);
         for (const newRec of newHistoryRecords) {
+           addUnpushedHistoryId(newRec.id);
            if (newRec.studentId && newRec.studentId !== "Chưa rõ") {
                const existing = prev.find(p => p.studentId === newRec.studentId && p.className === newRec.className && p.examName === newRec.examName && (p.sessionId || "SESSION_DEFAULT") === activeSessionId);
                if (existing) {
@@ -3074,7 +3089,7 @@ export default function App() {
                   console.error("Firebase deletion match commit error", e);
                   if (e?.code === 'resource-exhausted') {
                      setQuotaExceeded();
-                     terminate(db).catch(console.error);
+                     terminate(db).catch(() => {});
                   }
               });
            } catch(e) {
@@ -3178,6 +3193,7 @@ export default function App() {
         };
         
         setScanHistory((prev) => {
+          addUnpushedHistoryId(resultId);
           const next = prev.map((p) => (p.id === resultId ? updatedItem : p));
           localforage.setItem("autograde_history", next);
           return next;
@@ -3252,6 +3268,7 @@ export default function App() {
     }
 
     setScanHistory((prev) => {
+      addUnpushedHistoryId(resultId);
       const next = prev.map((p) => (p.id === resultId ? updatedItem : p));
       localforage.setItem("autograde_history", next);
       return next;
