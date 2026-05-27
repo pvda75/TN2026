@@ -306,71 +306,33 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    if (currentUserId && (images.length > 0 || deletedImageIds.current.size > 0)) {
-       const queueDocId = "scanQueue_" + currentUserId;
-       const safeImages = images.map(img => {
-          let { isUploadingToFirebase, ...safeImg } = img as any;
-          if (safeImg.src && safeImg.src.startsWith("data:")) {
-              safeImg.src = "";
-          }
-          if (!safeImg.result) return safeImg;
-          const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
-          return { ...safeImg, result: safeResult };
-       });
-       const cleanSafeImages = JSON.parse(JSON.stringify(safeImages));
-       try {
-          await setDoc(doc(db, "globals", queueDocId), { images: cleanSafeImages }, { merge: true });
-       } catch (e) {
-          console.error("Flush queue on logout error", e);
-       }
-    }
+  const handleLogout = () => {
+    // 1. Snapshot state for background sync
+    const uid = currentUserId;
+    const backupImages = [...images];
+    const backupScanHistory = [...scanHistory];
+    const backupDeletedImageIds = new Set(deletedImageIds.current);
+    const snapAppUsers = appUsers;
+    const snapClasses = classes;
+    const snapExamConfigs = examConfigs;
+    const snapExamSessions = examSessions;
+    const snapExamStructures = examStructures;
+    const snapGlobalOMRConfig = globalOMRConfig;
+    const snapGlobalOMRTemplateImage = globalOMRTemplateImage;
 
-    if (scanHistory.length > 0) {
-      try {
-        const batch = writeBatch(db);
-        let actualChanges = 0;
-        for (const item of scanHistory) {
-           const docRef = doc(db, "scanHistory", item.id);
-           const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } = item as any;
-           const metadataStr = JSON.stringify(metadataOnly);
-           const lastSynced = getSafeSessionStorage("sync_history_" + item.id);
-           if (lastSynced !== metadataStr) {
-               const cleanMetadata = JSON.parse(metadataStr);
-               if (metadataOnly.timestamp instanceof Date) {
-                   cleanMetadata.timestamp = metadataOnly.timestamp;
-               }
-               batch.set(docRef, cleanMetadata, { merge: true });
-               actualChanges++;
-           }
-        }
-        if (actualChanges > 0) {
-           await batch.commit();
-        }
-      } catch (e) {
-         console.error("Flush history on logout error", e);
-      }
-    }
+    const pushData = {
+        appUsers: snapAppUsers,
+        classes: snapClasses,
+        examConfigs: snapExamConfigs,
+        examStructures: snapExamStructures,
+        examSessions: snapExamSessions,
+        globalOMRConfig: snapGlobalOMRConfig,
+        ...(snapGlobalOMRTemplateImage ? { globalOMRTemplateImage: snapGlobalOMRTemplateImage } : {})
+    };
+    const currentGlobalStr = JSON.stringify(pushData);
+    const lastSyncedGlobal = getSafeSessionStorage("last_synced_globals");
 
-    try {
-      const pushData = {
-          appUsers,
-          classes,
-          examConfigs,
-          examStructures,
-          examSessions,
-          globalOMRConfig,
-          ...(globalOMRTemplateImage ? { globalOMRTemplateImage } : {})
-      };
-      const currentGlobalStr = JSON.stringify(pushData);
-      const lastSyncedGlobal = getSafeSessionStorage("last_synced_globals");
-      if (currentGlobalStr !== lastSyncedGlobal) {
-         await setDoc(doc(db, "globals", "appData"), JSON.parse(currentGlobalStr), { merge: true });
-      }
-    } catch (e) {
-      console.error("Flush globals on logout error", e);
-    }
-
+    // 2. Clear state immediately
     setUserRole(null);
     setCurrentUserId(null);
     setImages([]);
@@ -385,6 +347,50 @@ export default function App() {
     setLoginUsername("");
     setLoginPassword("");
     setLoginError("");
+
+    // 3. Background sync
+    if (uid && (backupImages.length > 0 || backupDeletedImageIds.size > 0)) {
+       const queueDocId = "scanQueue_" + uid;
+       const safeImages = backupImages.map(img => {
+          let { isUploadingToFirebase, ...safeImg } = img as any;
+          if (safeImg.src && safeImg.src.startsWith("data:")) {
+              safeImg.src = "";
+          }
+          if (!safeImg.result) return safeImg;
+          const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
+          return { ...safeImg, result: safeResult };
+       });
+       const cleanSafeImages = JSON.parse(JSON.stringify(safeImages));
+       setDoc(doc(db, "globals", queueDocId), { images: cleanSafeImages }, { merge: true })
+         .catch(e => console.error("Flush queue on logout error", e));
+    }
+
+    if (uid && backupScanHistory.length > 0) {
+      const batch = writeBatch(db);
+      let actualChanges = 0;
+      for (const item of backupScanHistory) {
+         const docRef = doc(db, "scanHistory", item.id);
+         const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } = item as any;
+         const metadataStr = JSON.stringify(metadataOnly);
+         
+         const cleanMetadata = JSON.parse(metadataStr);
+         if (metadataOnly.timestamp instanceof Date) {
+             cleanMetadata.timestamp = metadataOnly.timestamp;
+         }
+         batch.set(docRef, cleanMetadata, { merge: true });
+         actualChanges++;
+         
+         if (actualChanges >= 490) break; // keep under batch limit
+      }
+      if (actualChanges > 0) {
+         batch.commit().catch(e => console.error("Flush history on logout error", e));
+      }
+    }
+
+    if (currentGlobalStr !== lastSyncedGlobal) {
+       setDoc(doc(db, "globals", "appData"), JSON.parse(currentGlobalStr), { merge: true })
+         .catch(e => console.error("Flush globals on logout error", e));
+    }
   };
 
   const [globalOMRConfig, setGlobalOMRConfig] = useState<OMRConfig | null>(
