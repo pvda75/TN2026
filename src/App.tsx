@@ -894,33 +894,44 @@ export default function App() {
     
     // Subscribe to scanHistory
     const unsubHistory = onSnapshot(collection(db, "scanHistory"), (snapshot) => {
-      const histories = snapshot.docs.map(doc => {
-        const data = doc.data() as any;
-        if (data.timestamp?.toDate) {
-          data.timestamp = data.timestamp.toDate();
-        } else if (data.timestamp) {
-          data.timestamp = new Date(data.timestamp);
-        }
-        return data;
-      });
-      // Sort by timestamp descending
-      histories.sort((a, b) => {
-        const tA = a.timestamp instanceof Date ? a.timestamp.getTime() : 0;
-        const tB = b.timestamp instanceof Date ? b.timestamp.getTime() : 0;
-        return tB - tA;
-      });
-      
       setScanHistory(prevHistory => {
-         // Merge with existing images from localForage
-         return histories.map(remoteItem => {
-            const { imageSrc, originalImageSrc, ...metadataOnly } = remoteItem;
-            setSafeSessionStorage("sync_history_" + remoteItem.id, JSON.stringify(metadataOnly));
-            const localItem = prevHistory.find(p => p.id === remoteItem.id);
-            if (localItem && localItem.imageSrc) {
-               return { ...remoteItem, imageSrc: localItem.imageSrc, originalImageSrc: localItem.originalImageSrc };
+         let nextHistory = [...prevHistory];
+         snapshot.docChanges().forEach(change => {
+            const data = change.doc.data() as any;
+            if (change.type === "added" || change.type === "modified") {
+               if (data.timestamp?.toDate) {
+                 data.timestamp = data.timestamp.toDate();
+               } else if (data.timestamp) {
+                 data.timestamp = new Date(data.timestamp);
+               }
+               const { imageSrc, originalImageSrc, ...metadataOnly } = data;
+               setSafeSessionStorage("sync_history_" + data.id, JSON.stringify(metadataOnly));
+               
+               const existingIndex = nextHistory.findIndex(p => p.id === data.id);
+               if (existingIndex >= 0) {
+                  const localItem = nextHistory[existingIndex];
+                  if (localItem.imageSrc && !data.imageSrc) {
+                     data.imageSrc = localItem.imageSrc;
+                     data.originalImageSrc = localItem.originalImageSrc;
+                  }
+                  nextHistory[existingIndex] = data;
+               } else {
+                  nextHistory.push(data);
+               }
+            } else if (change.type === "removed") {
+               const id = data.id || change.doc.id;
+               nextHistory = nextHistory.filter(p => p.id !== id);
+               try { sessionStorage.removeItem("sync_history_" + id); } catch {}
             }
-            return remoteItem;
          });
+         
+         nextHistory.sort((a, b) => {
+            const tA = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp || 0).getTime();
+            const tB = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp || 0).getTime();
+            return tB - tA;
+         });
+         
+         return nextHistory;
       });
       initialHistoryFetchDone.current = true;
     }, (error: any) => {
@@ -3035,7 +3046,6 @@ export default function App() {
         
         if (toRemove.size > 0 && !firestoreQuotaExceeded) {
            try {
-              if (firestoreQuotaExceeded) return;
               const batch = writeBatch(db);
               toRemove.forEach((id) => {
                  batch.delete(doc(db, "scanHistory", id as string));
