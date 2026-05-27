@@ -306,12 +306,81 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (currentUserId && (images.length > 0 || deletedImageIds.current.size > 0)) {
+       const queueDocId = "scanQueue_" + currentUserId;
+       const safeImages = images.map(img => {
+          let { isUploadingToFirebase, ...safeImg } = img as any;
+          if (safeImg.src && safeImg.src.startsWith("data:")) {
+              safeImg.src = "";
+          }
+          if (!safeImg.result) return safeImg;
+          const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
+          return { ...safeImg, result: safeResult };
+       });
+       const cleanSafeImages = JSON.parse(JSON.stringify(safeImages));
+       try {
+          await setDoc(doc(db, "globals", queueDocId), { images: cleanSafeImages }, { merge: true });
+       } catch (e) {
+          console.error("Flush queue on logout error", e);
+       }
+    }
+
+    if (scanHistory.length > 0) {
+      try {
+        const batch = writeBatch(db);
+        let actualChanges = 0;
+        for (const item of scanHistory) {
+           const docRef = doc(db, "scanHistory", item.id);
+           const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } = item as any;
+           const metadataStr = JSON.stringify(metadataOnly);
+           const lastSynced = getSafeSessionStorage("sync_history_" + item.id);
+           if (lastSynced !== metadataStr) {
+               const cleanMetadata = JSON.parse(metadataStr);
+               if (metadataOnly.timestamp instanceof Date) {
+                   cleanMetadata.timestamp = metadataOnly.timestamp;
+               }
+               batch.set(docRef, cleanMetadata, { merge: true });
+               actualChanges++;
+           }
+        }
+        if (actualChanges > 0) {
+           await batch.commit();
+        }
+      } catch (e) {
+         console.error("Flush history on logout error", e);
+      }
+    }
+
+    try {
+      const pushData = {
+          appUsers,
+          classes,
+          examConfigs,
+          examStructures,
+          examSessions,
+          globalOMRConfig,
+          ...(globalOMRTemplateImage ? { globalOMRTemplateImage } : {})
+      };
+      const currentGlobalStr = JSON.stringify(pushData);
+      const lastSyncedGlobal = getSafeSessionStorage("last_synced_globals");
+      if (currentGlobalStr !== lastSyncedGlobal) {
+         await setDoc(doc(db, "globals", "appData"), JSON.parse(currentGlobalStr), { merge: true });
+      }
+    } catch (e) {
+      console.error("Flush globals on logout error", e);
+    }
+
     setUserRole(null);
     setCurrentUserId(null);
+    setImages([]);
+    setScanHistory([]);
+    clearImageTracking();
     try {
       localStorage.removeItem("app_user_role");
       localStorage.removeItem("app_current_user_id");
+      sessionStorage.clear();
+      localforage.clear();
     } catch {}
     setLoginUsername("");
     setLoginPassword("");
@@ -699,7 +768,13 @@ export default function App() {
       (img) =>
         img.examName === gradeExamName &&
         img.classId === activeClass,
-    );
+    )
+    .sort((a, b) => {
+        const da = parseFloat(a.id);
+        const db = parseFloat(b.id);
+        if (!isNaN(da) && !isNaN(db)) return da - db;
+        return a.id.localeCompare(b.id);
+    });
 
   const displayedImages = examImages.filter((img) => {
     let matchFilter = true;
@@ -750,6 +825,7 @@ export default function App() {
   // --- FIREBASE SYNC: Globals ---
   const initialFetchDone = useRef(false);
   const initialHistoryFetchDone = useRef(false);
+  const initialQueueFetchDone = useRef(false);
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "globals", "appData"), (snapshot) => {
       if (snapshot.exists()) {
@@ -785,9 +861,21 @@ export default function App() {
     
     // Subscribe to scanHistory
     const unsubHistory = onSnapshot(collection(db, "scanHistory"), (snapshot) => {
-      const histories = snapshot.docs.map(doc => doc.data() as any);
+      const histories = snapshot.docs.map(doc => {
+        const data = doc.data() as any;
+        if (data.timestamp?.toDate) {
+          data.timestamp = data.timestamp.toDate();
+        } else if (data.timestamp) {
+          data.timestamp = new Date(data.timestamp);
+        }
+        return data;
+      });
       // Sort by timestamp descending
-      histories.sort((a, b) => b.timestamp - a.timestamp);
+      histories.sort((a, b) => {
+        const tA = a.timestamp instanceof Date ? a.timestamp.getTime() : 0;
+        const tB = b.timestamp instanceof Date ? b.timestamp.getTime() : 0;
+        return tB - tA;
+      });
       
       setScanHistory(prevHistory => {
          // Merge with existing images from localForage
@@ -842,9 +930,11 @@ export default function App() {
       if (globalOMRConfig) pushData.globalOMRConfig = globalOMRConfig;
       if (globalOMRTemplateImage) pushData.globalOMRTemplateImage = globalOMRTemplateImage;
 
+      const cleanPushData = JSON.parse(JSON.stringify(pushData));
+
       if (firestoreQuotaExceeded) return;
 
-      setDoc(doc(db, "globals", "appData"), pushData, { merge: true }).then(() => {
+      setDoc(doc(db, "globals", "appData"), cleanPushData, { merge: true }).then(() => {
         setSafeSessionStorage("last_synced_globals", currentGlobalStr);
       }).catch((e: any) => {
         console.error("Firebase push error:", e);
@@ -868,12 +958,18 @@ export default function App() {
         
         for (const item of scanHistory) {
            const docRef = doc(db, "scanHistory", item.id);
-           const { imageSrc, originalImageSrc, ...metadataOnly } = item;
+           const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } = item as any;
            const metadataStr = JSON.stringify(metadataOnly);
            const lastSynced = getSafeSessionStorage("sync_history_" + item.id);
            
            if (lastSynced !== metadataStr) {
-               batch.set(docRef, metadataOnly);
+               // Parse back to remove undefined properties which Firestore rejects
+               const cleanMetadata = JSON.parse(metadataStr);
+               // Restore timestamp as Date if it existed natively
+               if (metadataOnly.timestamp instanceof Date) {
+                   cleanMetadata.timestamp = metadataOnly.timestamp;
+               }
+               batch.set(docRef, cleanMetadata);
                setSafeSessionStorage("sync_history_" + item.id, metadataStr);
                actualChanges++;
            }
@@ -901,6 +997,7 @@ export default function App() {
   }, [scanHistory]);
   // FIREBASE SYNC: scanQueue
   useEffect(() => {
+    initialQueueFetchDone.current = false;
     const queueDocId = "scanQueue_" + (currentUserId || "unknown");
     const unsubScanQueue = onSnapshot(doc(db, "globals", queueDocId), (snapshot) => {
       if (snapshot.exists()) {
@@ -910,14 +1007,18 @@ export default function App() {
           if (sessionCacheStr === JSON.stringify(remoteImages)) {
              return prev;
           }
-          const merged = remoteImages.map((rmt: any) => {
+          const merged = remoteImages
+             .filter((rmtOrig: any) => !deletedImageIds.current.has(rmtOrig.id))
+             .map((rmtOrig: any) => {
+             const { isUploadingToFirebase, ...rmt } = rmtOrig;
              const local = prev.find(p => p.id === rmt.id);
              if (local) {
-                if ((local as any).isUploadingToFirebase || local.status === "processing") {
+                if ((local as any).isUploadingToFirebase || local.status === "processing" || unpushedImageIds.current.has(rmt.id)) {
                    return local;
                 }
                 return {
                    ...rmt,
+                   src: rmt.src || rmt.firebaseImageUrl || local.src,
                    result: local.result && rmt.result ? {
                       ...rmt.result,
                       imageSrc: local.result.imageSrc || rmt.result.imageSrc,
@@ -925,9 +1026,12 @@ export default function App() {
                    } : rmt.result
                 };
              }
-             return rmt;
+             return {
+                 ...rmt,
+                 src: rmt.src || rmt.firebaseImageUrl
+             };
           });
-          const localOnly = prev.filter(p => !remoteImages.find((r: any) => r.id === p.id) && ((p as any).isUploadingToFirebase || p.status === "processing"));
+          const localOnly = prev.filter(p => !remoteImages.find((r: any) => r.id === p.id) && !deletedImageIds.current.has(p.id) && ((p as any).isUploadingToFirebase || p.status === "processing" || unpushedImageIds.current.has(p.id)));
           const finalImages = [...merged, ...localOnly];
           // Update the cache immediately so loop terminates
           setSafeSessionStorage("last_synced_" + queueDocId, JSON.stringify(remoteImages));
@@ -935,6 +1039,7 @@ export default function App() {
           return finalImages;
         });
       }
+      initialQueueFetchDone.current = true;
     });
 
     return () => unsubScanQueue();
@@ -942,7 +1047,7 @@ export default function App() {
 
   // background sync scan queue 'images' to storage and firestore
   useEffect(() => {
-    if (!initialFetchDone.current) return;
+    if (!initialFetchDone.current || !initialQueueFetchDone.current) return;
     const queueDocId = "scanQueue_" + (currentUserId || "unknown");
 
     // 1. Upload base64 src to firebaseImageUrl
@@ -970,24 +1075,36 @@ export default function App() {
     // 2. Sync metadata to Firestore
     const timeout = setTimeout(() => {
       if (firestoreQuotaExceeded) return;
-      const allUrlsReady = images.every(img => !img.src || !img.src.startsWith("data:") || img.firebaseImageUrl);
-      if (!allUrlsReady) return; 
       
       const currentStr = JSON.stringify(images);
       const localCacheStr = getSafeSessionStorage("local_last_synced_" + queueDocId);
       if (currentStr === localCacheStr) return;
 
       const safeImages = images.map(img => {
-          if (!img.result) return img;
-          const { imageSrc, originalImageSrc, ...safeResult } = img.result;
-          return { ...img, result: safeResult };
+          let { isUploadingToFirebase, ...safeImg } = img as any;
+          if (safeImg.src && safeImg.src.startsWith("data:")) {
+              safeImg.src = ""; // Do not transmit large base64 strings to Firestore
+          }
+          if (!safeImg.result) return safeImg;
+          const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
+          return { ...safeImg, result: safeResult };
       });
       
       const safeImagesStr = JSON.stringify(safeImages);
+      const cleanSafeImages = JSON.parse(safeImagesStr);
 
-      setDoc(doc(db, "globals", queueDocId), { images: safeImages }, { merge: true }).then(() => {
+      const snapshotOfUnpushed = new Set(images.map((i: any) => i.id));
+      const snapshotOfDeleted = new Set(deletedImageIds.current);
+      
+      setDoc(doc(db, "globals", queueDocId), { images: cleanSafeImages }, { merge: true }).then(() => {
         setSafeSessionStorage("local_last_synced_" + queueDocId, currentStr); // local loop prevention
         setSafeSessionStorage("last_synced_" + queueDocId, safeImagesStr);    // snapshot loop prevention
+        
+        // Remove tracking since sync succeeded
+        snapshotOfUnpushed.forEach(id => unpushedImageIds.current.delete(id));
+        snapshotOfDeleted.forEach(id => deletedImageIds.current.delete(id));
+        localStorage.setItem("unpushed_image_ids", JSON.stringify(Array.from(unpushedImageIds.current)));
+        localStorage.setItem("deleted_image_ids", JSON.stringify(Array.from(deletedImageIds.current)));
       }).catch(console.error);
     }, 2000);
 
@@ -1071,7 +1188,7 @@ export default function App() {
               ...item,
               score: p1Score + p2Score + p3Score,
               resultDetails: details,
-              timestamp: new Date(item.timestamp),
+              timestamp: item.timestamp ? new Date(item.timestamp) : new Date(),
             };
           });
           setScanHistory(prev => {
@@ -1097,11 +1214,22 @@ export default function App() {
           await localforage.getItem<ScannedImage[]>("autograde_images");
         if (isMounted && savedImages && Array.isArray(savedImages)) {
           setImages(prev => {
-             // If we already synced from Firebase, keep the active/remote ones
-             if (prev.length > 0 && prev.some(p => p.firebaseImageUrl || p.src?.startsWith("http"))) {
-                 return prev;
+             if (prev.length === 0) {
+                 return savedImages;
              }
-             return savedImages;
+             // Merge strategy: savedImages contains the last immediate truth before reload (or close).
+             // 'prev' contains Firebase's last successful sync.
+             // We want to keep items from savedImages that are NOT in prev, OR are still "processing" / missing firebase urls.
+             const merged = [...prev];
+             for (const s of savedImages) {
+                 if (!merged.some(m => m.id === s.id)) {
+                     merged.push(s);
+                 }
+             }
+             // We also want to remove items from merged that were explicitly deleted in savedImages but still in prev? No, we don't have deletedImageIds persisted across F5. 
+             // To ensure deletions survive F5, we can strictly filter `merged` to only include items that exist in `savedImages`! Wait, if Firebase has NEW images from another client, we shouldn't delete them. 
+             // But if `savedImages` is recent, maybe it's fine.
+             return merged;
           });
         }
 
@@ -1158,10 +1286,47 @@ export default function App() {
     }
   }, [scanHistory]);
 
+  useEffect(() => {
+    if (!isLoadedRef.current) return;
+    try {
+      localforage.setItem("autograde_images", images);
+    } catch (err) {
+      console.error("Failed to save images:", err);
+    }
+  }, [images]);
+
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
+  
+  const getSetFromStorage = (key: string) => {
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) return new Set<string>(JSON.parse(stored));
+    } catch {}
+    return new Set<string>();
+  };
+
+  const deletedImageIds = useRef<Set<string>>(getSetFromStorage("deleted_image_ids"));
+  const unpushedImageIds = useRef<Set<string>>(getSetFromStorage("unpushed_image_ids"));
+
+  const addDeletedImageId = (id: string) => {
+    deletedImageIds.current.add(id);
+    localStorage.setItem("deleted_image_ids", JSON.stringify(Array.from(deletedImageIds.current)));
+  };
+  
+  const addUnpushedImageId = (id: string) => {
+    unpushedImageIds.current.add(id);
+    localStorage.setItem("unpushed_image_ids", JSON.stringify(Array.from(unpushedImageIds.current)));
+  };
+
+  const clearImageTracking = () => {
+     deletedImageIds.current.clear();
+     unpushedImageIds.current.clear();
+     localStorage.removeItem("deleted_image_ids");
+     localStorage.removeItem("unpushed_image_ids");
+  };
 
   const getStructureLabel = (id: string) => {
     const s = examStructures.find((struct) => struct.id === id);
@@ -1447,6 +1612,7 @@ export default function App() {
       const imageBase64 = webcamRef.current.getScreenshot();
       if (imageBase64) {
         const newId = Date.now().toString() + Math.random().toString();
+        addUnpushedImageId(newId);
         setImages((prev) => [
           ...prev,
           {
@@ -1482,10 +1648,12 @@ export default function App() {
         const reader = new FileReader();
         reader.onload = (e) => {
           const base64 = e.target?.result as string;
+          const newId = Date.now().toString() + Math.random().toString();
+          addUnpushedImageId(newId);
           setImages((prev) => [
             ...prev,
             {
-              id: Date.now() + Math.random().toString(),
+              id: newId,
               src: base64,
               selected: true,
               status: "pending",
@@ -1714,14 +1882,18 @@ export default function App() {
     );
     const newImages = itemsToRescan
       .filter((i) => i.imageSrc || i.firebaseImageUrl)
-      .map((item) => ({
-        id: Date.now().toString() + Math.random().toString(),
-        src: item.imageSrc || item.firebaseImageUrl,
-        selected: true,
-        status: "pending",
-        examName: gradeExamName,
-        classId: activeClass,
-      }));
+      .map((item) => {
+        const newId = Date.now().toString() + Math.random().toString();
+        addUnpushedImageId(newId);
+        return {
+          id: newId,
+          src: item.imageSrc || item.firebaseImageUrl,
+          selected: true,
+          status: "pending",
+          examName: gradeExamName,
+          classId: activeClass,
+        };
+      });
 
     setImages((prev) => [...newImages, ...prev]);
     setActiveTab("scan");
@@ -2337,9 +2509,9 @@ export default function App() {
 
       // Sort by recently updated based on the last log timestamp
       editedItems.sort((a, b) => {
-        const lastA = new Date(a.editLogs[a.editLogs.length - 1].timestamp).getTime();
-        const lastB = new Date(b.editLogs[b.editLogs.length - 1].timestamp).getTime();
-        return lastB - lastA;
+        const lastA = new Date(a.editLogs[a.editLogs.length - 1]?.timestamp || Date.now()).getTime();
+        const lastB = new Date(b.editLogs[b.editLogs.length - 1]?.timestamp || Date.now()).getTime();
+        return (isNaN(lastB) ? 0 : lastB) - (isNaN(lastA) ? 0 : lastA);
       });
 
       const itemsByClass = editedItems.reduce((acc, item) => {
@@ -2378,9 +2550,11 @@ export default function App() {
           `;
 
           item.editLogs.forEach((log: any) => {
+            const validDate = new Date(log.timestamp || Date.now());
+            const dateStr = isNaN(validDate.getTime()) ? new Date().toLocaleString("vi-VN") : validDate.toLocaleString("vi-VN");
             html += `
               <tr>
-                <td style="border: 1px solid #cbd5e1; padding: 8px;">${new Date(log.timestamp).toLocaleString("vi-VN")}</td>
+                <td style="border: 1px solid #cbd5e1; padding: 8px;">${dateStr}</td>
                 <td style="border: 1px solid #cbd5e1; padding: 8px; font-weight: bold; color: #4338ca;">${log.user}</td>
                 <td style="border: 1px solid #cbd5e1; padding: 8px; color: #DC2626;">${log.action}</td>
               </tr>
@@ -3885,9 +4059,10 @@ export default function App() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setImages((prev) =>
-                                  prev.filter((i) => i.id !== img.id),
-                                );
+                                setImages((prev) => {
+                                  addDeletedImageId(img.id);
+                                  return prev.filter((i) => i.id !== img.id);
+                                });
                               }}
                               className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white w-6 h-6 rounded-full flex items-center justify-center shadow"
                             >
@@ -3901,15 +4076,21 @@ export default function App() {
                     <div className="mt-6 flex flex-col sm:flex-row justify-between gap-3 pt-4 border-t border-slate-200">
                       <button
                         onClick={() =>
-                          setImages((prev) =>
-                            prev.filter(
+                          setImages((prev) => {
+                            const remaining = prev.filter(
                               (img) =>
                                 !(
                                   img.examName === gradeExamName &&
                                   img.classId === activeClass
                                 ),
-                            ),
-                          )
+                            );
+                            prev.forEach(img => {
+                               if (!remaining.some(r => r.id === img.id)) {
+                                   addDeletedImageId(img.id);
+                               }
+                            });
+                            return remaining;
+                          })
                         }
                         disabled={globalProcessing}
                         className="bg-white hover:bg-red-50 text-red-600 font-medium py-2 px-4 border border-red-200 rounded-lg shadow-sm transition-colors text-sm disabled:opacity-50"
@@ -4976,7 +5157,10 @@ export default function App() {
                               <li key={idx} className="text-sm p-3 bg-slate-50 border border-slate-200 rounded-lg">
                                 <div className="flex justify-between items-start mb-1 gap-2">
                                   <span className="font-semibold text-slate-800">{log.user}</span>
-                                  <span className="text-[10px] text-slate-500 whitespace-nowrap opacity-80 uppercase tracking-widest">{new Date(log.timestamp).toLocaleString("vi-VN", { hour12: false })}</span>
+                                  <span className="text-[10px] text-slate-500 whitespace-nowrap opacity-80 uppercase tracking-widest">{(() => {
+                                      const d = new Date(log.timestamp || Date.now());
+                                      return isNaN(d.getTime()) ? new Date().toLocaleString("vi-VN", { hour12: false }) : d.toLocaleString("vi-VN", { hour12: false });
+                                  })()}</span>
                                 </div>
                                 <div className="text-slate-600 font-medium">
                                   {log.action}
