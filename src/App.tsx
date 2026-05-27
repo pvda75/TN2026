@@ -857,6 +857,10 @@ export default function App() {
   const initialQueueFetchDone = useRef(false);
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "globals", "appData"), (snapshot) => {
+      if (firestoreQuotaExceeded) {
+         initialFetchDone.current = true;
+         return;
+      }
       if (snapshot.exists()) {
         const data = snapshot.data();
         const { updatedAt, ...coreDataUnsorted } = data;
@@ -894,6 +898,10 @@ export default function App() {
     
     // Subscribe to scanHistory
     const unsubHistory = onSnapshot(collection(db, "scanHistory"), (snapshot) => {
+      if (firestoreQuotaExceeded) {
+          initialHistoryFetchDone.current = true;
+          return;
+      }
       setScanHistory(prevHistory => {
          let nextHistory = [...prevHistory];
          snapshot.docChanges().forEach(change => {
@@ -910,11 +918,16 @@ export default function App() {
                const existingIndex = nextHistory.findIndex(p => p.id === data.id);
                if (existingIndex >= 0) {
                   const localItem = nextHistory[existingIndex];
-                  if (localItem.imageSrc && !data.imageSrc) {
-                     data.imageSrc = localItem.imageSrc;
-                     data.originalImageSrc = localItem.originalImageSrc;
+                  const localT = localItem.updatedAt || (localItem.timestamp instanceof Date ? localItem.timestamp.getTime() : new Date(localItem.timestamp || 0).getTime());
+                  const dataT = data.updatedAt || (data.timestamp instanceof Date ? data.timestamp.getTime() : new Date(data.timestamp || 0).getTime());
+                  
+                  if (dataT >= localT) {
+                     if (localItem.imageSrc && !data.imageSrc) {
+                        data.imageSrc = localItem.imageSrc;
+                        data.originalImageSrc = localItem.originalImageSrc;
+                     }
+                     nextHistory[existingIndex] = data;
                   }
-                  nextHistory[existingIndex] = data;
                } else {
                   nextHistory.push(data);
                }
@@ -1050,6 +1063,10 @@ export default function App() {
     initialQueueFetchDone.current = false;
     const queueDocId = "scanQueue_" + (currentUserId || "unknown");
     const unsubScanQueue = onSnapshot(doc(db, "globals", queueDocId), (snapshot) => {
+      if (firestoreQuotaExceeded) {
+          initialQueueFetchDone.current = true;
+          return;
+      }
       if (snapshot.exists()) {
         const remoteImages = snapshot.data().images || [];
         setImages(prev => {
@@ -1919,6 +1936,7 @@ export default function App() {
               ...item,
               score: result.totalScore,
               resultDetails: result.resultDetails,
+              updatedAt: Date.now()
             };
           }
         }
@@ -2081,6 +2099,7 @@ export default function App() {
                 cleanStudentAnswers?.studentId?.trim() || match.studentId,
               score: gradeResult.totalScore,
               resultDetails: gradeResult.resultDetails,
+              updatedAt: Date.now()
             };
 
             setScanHistory((prev) => {
@@ -3019,6 +3038,7 @@ export default function App() {
           score: result.totalScore,
           resultDetails: result.resultDetails,
           timestamp: new Date(),
+          updatedAt: Date.now(),
           imageSrc: img.processedDataUrl,
           originalImageSrc: img.src,
           rawAnswers: studentAnswers,
@@ -3154,6 +3174,7 @@ export default function App() {
           score: gradeResult.totalScore,
           resultDetails: gradeResult.resultDetails,
           editLogs: newLogs,
+          updatedAt: Date.now()
         };
         
         setScanHistory((prev) => {
@@ -3222,7 +3243,8 @@ export default function App() {
           ...updatedItem,
           score: gradeResult.totalScore,
           resultDetails: gradeResult.resultDetails,
-          examName: currentConfig.name 
+          examName: currentConfig.name,
+          updatedAt: Date.now()
         };
       }
     } else if (type === "examCode") {
