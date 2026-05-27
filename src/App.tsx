@@ -335,14 +335,10 @@ export default function App() {
     // 2. Clear state immediately
     setUserRole(null);
     setCurrentUserId(null);
-    setImages([]);
-    setScanHistory([]);
-    clearImageTracking();
     try {
       localStorage.removeItem("app_user_role");
       localStorage.removeItem("app_current_user_id");
       sessionStorage.clear();
-      localforage.clear();
     } catch {}
     setLoginUsername("");
     setLoginPassword("");
