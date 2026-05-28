@@ -291,6 +291,21 @@ export default function App() {
 
 
   const [showPermissionModal, setShowPermissionModal] = useState<string | null>(null);
+  const [tempAssignedClasses, setTempAssignedClasses] = useState<string[]>([]);
+  const [tempAssignedExams, setTempAssignedExams] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (showPermissionModal) {
+      const user = appUsers.find(u => u.id === showPermissionModal);
+      if (user) {
+        setTempAssignedClasses(user.assignedClasses || []);
+        setTempAssignedExams(user.assignedExams || []);
+      }
+    } else {
+      setTempAssignedClasses([]);
+      setTempAssignedExams([]);
+    }
+  }, [showPermissionModal]);
   const [newUserInput, setNewUserInput] = useState({ username: "", password: "", role: "USER" as "ADMIN" | "USER" });
   const [resetPwdUserId, setResetPwdUserId] = useState<string | null>(null);
   const [resetPwdInput, setResetPwdInput] = useState("");
@@ -6641,19 +6656,24 @@ export default function App() {
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
               <div className="bg-white border border-slate-200 rounded-2xl shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[80vh]">
                 <div className="bg-indigo-600 border-b border-indigo-700 text-white px-5 py-4 font-semibold text-lg flex justify-between items-center rounded-t-2xl">
-                  <span>Phân quyền Nhận dạng & Chấm bài</span>
+                  <span>Phân quyền tài khoản: <span className="underline font-bold">{user.username}</span></span>
+                  <button onClick={() => setShowPermissionModal(null)} className="text-white hover:text-slate-200 text-sm font-medium">✕</button>
                 </div>
                 <div className="p-6 overflow-y-auto space-y-6 flex-1">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">LỚP / PHÒNG THI</h4>
+                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">LỚP / PHÒNG THI ĐƯỢC PHÉP</h4>
+                    <p className="text-xs text-slate-500 mb-2">Nếu không chọn lớp nào, người dùng có quyền Xem/Chấm tất cả các lớp.</p>
                     <div className="grid grid-cols-2 gap-2">
                        {classes.map(c => {
-                          const isAssigned = (user.assignedClasses || []).includes(c);
+                          const isAssigned = tempAssignedClasses.includes(c);
                           return (
                              <label key={'cls_'+c} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer p-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                <input type="checkbox" className="accent-indigo-600 w-4 h-4 rounded" checked={isAssigned} onChange={(e) => {
-                                  const nextClasses = e.target.checked ? [...(user.assignedClasses||[]), c] : (user.assignedClasses||[]).filter((x: string) => x !== c);
-                                  setAppUsers(users => users.map(u => u.id === user.id ? { ...u, assignedClasses: nextClasses } : u));
+                                  if (e.target.checked) {
+                                     setTempAssignedClasses([...tempAssignedClasses, c]);
+                                  } else {
+                                     setTempAssignedClasses(tempAssignedClasses.filter(x => x !== c));
+                                  }
                                }} />
                                {c}
                              </label>
@@ -6662,15 +6682,19 @@ export default function App() {
                     </div>
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">BÀI THI</h4>
+                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">BÀI THI ĐƯỢC PHÉP</h4>
+                    <p className="text-xs text-slate-500 mb-2">Nếu không chọn bài thi nào, người dùng có quyền Xem/Chấm tất cả các bài thi.</p>
                     <div className="grid grid-cols-2 gap-2">
                        {allExamNamesStr.map(ex => {
-                          const isAssigned = (user.assignedExams || []).includes(ex);
+                          const isAssigned = tempAssignedExams.includes(ex);
                           return (
                              <label key={'ex_'+ex} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer p-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200">
                                <input type="checkbox" className="accent-indigo-600 w-4 h-4 rounded" checked={isAssigned} onChange={(e) => {
-                                  const nextExams = e.target.checked ? [...(user.assignedExams||[]), ex] : (user.assignedExams||[]).filter((x: string) => x !== ex);
-                                  setAppUsers(users => users.map(u => u.id === user.id ? { ...u, assignedExams: nextExams } : u));
+                                  if (e.target.checked) {
+                                     setTempAssignedExams([...tempAssignedExams, ex]);
+                                  } else {
+                                     setTempAssignedExams(tempAssignedExams.filter(x => x !== ex));
+                                  }
                                }} />
                                {ex}
                              </label>
@@ -6680,8 +6704,21 @@ export default function App() {
                   </div>
                 </div>
                 <div className="bg-slate-50 border-t border-slate-200 p-4 flex justify-end gap-3 rounded-b-2xl shadow-[inset_0_1px_0_rgba(255,255,255,1)]">
-                   <button onClick={() => setShowPermissionModal(null)} className="bg-indigo-600 text-white font-semibold py-2 px-6 rounded-xl hover:bg-indigo-700 transition shadow-sm">
-                      Đóng
+                   <button 
+                      onClick={() => setShowPermissionModal(null)} 
+                      className="border border-slate-300 text-slate-700 font-medium py-2 px-4 rounded-xl hover:bg-slate-100 transition text-sm"
+                   >
+                      Huỷ bỏ
+                   </button>
+                   <button 
+                      onClick={() => {
+                        setAppUsers(users => users.map(u => u.id === user.id ? { ...u, assignedClasses: tempAssignedClasses, assignedExams: tempAssignedExams } : u));
+                        setShowPermissionModal(null);
+                        setDialogState({ type: "alert", message: "Đã cập nhật phân quyền thành công cho tài khoản " + user.username });
+                      }} 
+                      className="bg-indigo-600 text-white font-semibold py-2 px-6 rounded-xl hover:bg-indigo-700 transition shadow-sm text-sm flex items-center gap-2"
+                   >
+                      <span>Ghi và Đóng</span>
                    </button>
                 </div>
               </div>
