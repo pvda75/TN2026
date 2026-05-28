@@ -1195,35 +1195,41 @@ export default function App() {
 
   useEffect(() => {
     if (!initialFetchDone.current) return;
-    const timeout = setTimeout(() => {
-      // Create a stringified version to check for actual changes instead of references
-      const syncObj: any = {
-        appUsers,
-        classes,
-        examConfigs,
-        examSessions,
-        examStructures,
-      };
-      if (globalOMRConfig) {
-        syncObj.globalOMRConfig = globalOMRConfig;
-      }
-      if (globalOMRTemplateImage) {
-        syncObj.globalOMRTemplateImage = globalOMRTemplateImage;
-      }
-      const sortedSyncObj: any = {};
-      Object.keys(syncObj)
-        .sort()
-        .forEach((k) => {
-          sortedSyncObj[k] = syncObj[k];
-        });
-      const currentGlobalStr = JSON.stringify(sortedSyncObj);
-      const lastSyncedGlobalStr = getSafeSessionStorage("last_synced_globals");
-      if (currentGlobalStr === lastSyncedGlobalStr) return; // Skip if no real data changed
 
-      const now = Date.now();
+    // Create a stringified version to check for actual changes instead of references
+    const syncObj: any = {
+      appUsers,
+      classes,
+      examConfigs,
+      examSessions,
+      examStructures,
+    };
+    if (globalOMRConfig) {
+      syncObj.globalOMRConfig = globalOMRConfig;
+    }
+    if (globalOMRTemplateImage) {
+      syncObj.globalOMRTemplateImage = globalOMRTemplateImage;
+    }
+    const sortedSyncObj: any = {};
+    Object.keys(syncObj)
+      .sort()
+      .forEach((k) => {
+        sortedSyncObj[k] = syncObj[k];
+      });
+    const currentGlobalStr = JSON.stringify(sortedSyncObj);
+    const lastSyncedGlobalStr = getSafeSessionStorage("last_synced_globals");
+
+    const isChanged = currentGlobalStr !== lastSyncedGlobalStr;
+    const now = Date.now();
+
+    if (isChanged) {
       try {
         localStorage.setItem("last_local_update_time", now.toString());
       } catch (e) {}
+    }
+
+    const timeout = setTimeout(() => {
+      if (!isChanged) return; // Skip if no real data changed
 
       if (firestoreQuotaExceeded) return;
 
