@@ -558,6 +558,18 @@ export default function App() {
     setSafeStorage("autograde_active_session", activeSessionId);
   }, [activeSessionId]);
 
+  useEffect(() => {
+    if (examSessions && examSessions.length > 0) {
+      const savedActive = localStorage.getItem("autograde_active_session");
+      if (!savedActive || savedActive === "SESSION_DEFAULT") {
+        const customSessions = examSessions.filter(s => s.id !== "SESSION_DEFAULT");
+        if (customSessions.length > 0) {
+          setActiveSessionId(customSessions[customSessions.length - 1].id);
+        }
+      }
+    }
+  }, [examSessions]);
+
 
   // Step 1: Subjects/Structures
   const [examStructures, setExamStructures] = useState<ExamStructure[]>(() => {
@@ -1220,6 +1232,7 @@ export default function App() {
         try {
           const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
           const url = await uploadBase64ToStorage(path, item.imageSrc);
+          addUnpushedHistoryId(item.id);
           setScanHistory(prev => {
              return prev.map(p => p.id === item.id ? { ...p, firebaseImageUrl: url, isUploading: false } : p);
           });
@@ -1818,13 +1831,15 @@ export default function App() {
     const itemSessionId = item.sessionId || "SESSION_DEFAULT";
     if (itemSessionId !== activeSessionId) return false;
 
-    if (isUserConstrained && allowedClasses.length > 0) {
-      if (item.className && !allowedClasses.includes(item.className)) return false;
-    }
-    if (allowedExams.length > 0) {
-      if (!item.examName || !allowedExams.includes(item.examName)) return false;
-    } else {
-      return false;
+    if (isUserConstrained) {
+      if (allowedClasses.length > 0) {
+        if (item.className && !allowedClasses.includes(item.className)) return false;
+      }
+      if (allowedExams.length > 0) {
+        if (!item.examName || !allowedExams.includes(item.examName)) return false;
+      } else {
+        return false;
+      }
     }
     return true;
   });
