@@ -719,9 +719,11 @@ export default function App() {
   const [gradeExamName, setGradeExamName] = useState<string>("TOÁN HỌC");
 
   const currentUserData = appUsers.find(u => u.id === currentUserId);
-  const isUserConstrained = currentUserData?.role === "USER";
+  const isUserConstrained = userRole === "USER";
 
-  const allowedClasses = isUserConstrained && currentUserData?.assignedClasses?.length > 0 ? classes.filter(c => currentUserData.assignedClasses.includes(c)) : classes;
+  const allowedClasses = isUserConstrained && currentUserData?.assignedClasses?.length > 0 
+    ? currentUserData.assignedClasses 
+    : classes;
 
   const validStructureNames = examStructures
     .filter(s => s.sessionId === activeSessionId || (!s.sessionId && activeSessionId === "SESSION_DEFAULT"))
@@ -730,7 +732,9 @@ export default function App() {
   const allExamNamesStr = Array.from(new Set(examStructures.map(s => s.name))) as string[];
   const validExamNamesStr = validStructureNames;
 
-  const allowedExams = isUserConstrained && currentUserData?.assignedExams?.length > 0 ? validExamNamesStr.filter(name => currentUserData.assignedExams.includes(name)) : validExamNamesStr;
+  const allowedExams = isUserConstrained && currentUserData?.assignedExams?.length > 0 
+    ? currentUserData.assignedExams 
+    : validExamNamesStr;
 
   useEffect(() => {
      if (allowedClasses.length > 0 && !allowedClasses.includes(activeClass)) {
@@ -1017,7 +1021,7 @@ export default function App() {
            terminate(db).catch(() => {});
         }
       });
-    }, 2000); // 2 second debounce
+    }, 500); // 500ms debounce
     return () => clearTimeout(timeout);
   }, [appUsers, classes, examConfigs, examStructures, examSessions, globalOMRConfig, globalOMRTemplateImage]);
 
@@ -1832,13 +1836,14 @@ export default function App() {
     if (itemSessionId !== activeSessionId) return false;
 
     if (isUserConstrained) {
-      if (allowedClasses.length > 0) {
-        if (item.className && !allowedClasses.includes(item.className)) return false;
+      const assignedClasses = currentUserData?.assignedClasses || [];
+      const assignedExams = currentUserData?.assignedExams || [];
+
+      if (assignedClasses.length > 0) {
+        if (!item.className || !assignedClasses.includes(item.className)) return false;
       }
-      if (allowedExams.length > 0) {
-        if (!item.examName || !allowedExams.includes(item.examName)) return false;
-      } else {
-        return false;
+      if (assignedExams.length > 0) {
+        if (!item.examName || !assignedExams.includes(item.examName)) return false;
       }
     }
     return true;
