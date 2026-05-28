@@ -516,8 +516,17 @@ export default function App() {
     }
 
     if (currentGlobalStr !== lastSyncedGlobal) {
+      const now = Date.now();
+      try {
+        localStorage.setItem("last_local_update_time", now.toString());
+      } catch {}
+
       if (firestoreQuotaExceeded) return;
-      setDoc(doc(db, "globals", "appData"), JSON.parse(currentGlobalStr), {
+      const dataToSet = {
+        ...JSON.parse(currentGlobalStr),
+        updatedAt: now,
+      };
+      setDoc(doc(db, "globals", "appData"), dataToSet, {
         merge: true,
       }).catch((e) => {
         console.error("Flush globals on logout error", e);
@@ -1028,6 +1037,25 @@ export default function App() {
           const data = snapshot.data();
           const { updatedAt, ...coreDataUnsorted } = data;
 
+          const remoteUpdatedAt = updatedAt || 0;
+          let localLastUpdateTimeVal = 0;
+          try {
+            localLastUpdateTimeVal = parseInt(
+              localStorage.getItem("last_local_update_time") || "0",
+            );
+          } catch {}
+
+          if (remoteUpdatedAt < localLastUpdateTimeVal) {
+            console.log(
+              "Stale snapshots ignored to protect newer local updates. Remote updatedAt:",
+              remoteUpdatedAt,
+              "Local lastUpdateTime:",
+              localLastUpdateTimeVal,
+            );
+            initialFetchDone.current = true;
+            return;
+          }
+
           // Sort keys to ensure stable stringify
           const syncKeys = [
             "appUsers",
@@ -1192,6 +1220,11 @@ export default function App() {
       const lastSyncedGlobalStr = getSafeSessionStorage("last_synced_globals");
       if (currentGlobalStr === lastSyncedGlobalStr) return; // Skip if no real data changed
 
+      const now = Date.now();
+      try {
+        localStorage.setItem("last_local_update_time", now.toString());
+      } catch (e) {}
+
       if (firestoreQuotaExceeded) return;
 
       const pushData: any = {
@@ -1200,7 +1233,7 @@ export default function App() {
         examConfigs,
         examStructures,
         examSessions,
-        updatedAt: Date.now(),
+        updatedAt: now,
       };
       if (globalOMRConfig) pushData.globalOMRConfig = globalOMRConfig;
       if (globalOMRTemplateImage)
