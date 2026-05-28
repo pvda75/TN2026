@@ -38,6 +38,7 @@ import {
   Edit3,
   LogOut,
   BarChart3,
+  Folder,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -230,6 +231,21 @@ const isQuotaError = (error: any) => {
   );
 };
 
+const deepEqual = (a: any, b: any): boolean => {
+  if (a === b) return true;
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) {
+    return false;
+  }
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (!keysB.includes(k)) return false;
+    if (!deepEqual(a[k], b[k])) return false;
+  }
+  return true;
+};
+
 try {
   const quotaExceededUntil = localStorage.getItem(
     "firestoreQuotaExceededUntil",
@@ -379,6 +395,11 @@ export default function App() {
   );
   const [tempAssignedClasses, setTempAssignedClasses] = useState<string[]>([]);
   const [tempAssignedExams, setTempAssignedExams] = useState<string[]>([]);
+  const [tempAssignedSessions, setTempAssignedSessions] = useState<string[]>([]);
+  const [tempPermissionRecognizeImage, setTempPermissionRecognizeImage] = useState<boolean>(true);
+  const [tempPermissionGrade, setTempPermissionGrade] = useState<boolean>(true);
+  const [tempPermissionViewResults, setTempPermissionViewResults] = useState<boolean>(true);
+  const [tempPermissionEditResults, setTempPermissionEditResults] = useState<boolean>(true);
 
   useEffect(() => {
     if (showPermissionModal) {
@@ -386,12 +407,22 @@ export default function App() {
       if (user) {
         setTempAssignedClasses(user.assignedClasses || []);
         setTempAssignedExams(user.assignedExams || []);
+        setTempAssignedSessions(user.assignedSessions || []);
+        setTempPermissionRecognizeImage(user.permissionRecognizeImage !== false);
+        setTempPermissionGrade(user.permissionGrade !== false);
+        setTempPermissionViewResults(user.permissionViewResults !== false);
+        setTempPermissionEditResults(user.permissionEditResults !== false);
       }
     } else {
       setTempAssignedClasses([]);
       setTempAssignedExams([]);
+      setTempAssignedSessions([]);
+      setTempPermissionRecognizeImage(true);
+      setTempPermissionGrade(true);
+      setTempPermissionViewResults(true);
+      setTempPermissionEditResults(true);
     }
-  }, [showPermissionModal]);
+  }, [showPermissionModal, appUsers]);
   const [newUserInput, setNewUserInput] = useState({
     username: "",
     password: "",
@@ -864,6 +895,11 @@ export default function App() {
   const currentUserData = appUsers.find((u) => u.id === currentUserId);
   const isUserConstrained = userRole === "USER";
 
+  const userHasRecognizeImage = !isUserConstrained || (currentUserData?.permissionRecognizeImage !== false);
+  const userHasGrade = !isUserConstrained || (currentUserData?.permissionGrade !== false);
+  const userHasViewResults = !isUserConstrained || (currentUserData?.permissionViewResults !== false);
+  const userHasEditResults = !isUserConstrained || (currentUserData?.permissionEditResults !== false);
+
   const allowedClasses =
     isUserConstrained && currentUserData?.assignedClasses?.length > 0
       ? currentUserData.assignedClasses
@@ -887,6 +923,11 @@ export default function App() {
       ? currentUserData.assignedExams
       : validExamNamesStr;
 
+  const allowedSessions =
+    isUserConstrained && currentUserData?.assignedSessions?.length > 0
+      ? currentUserData.assignedSessions
+      : examSessions.map((s) => s.id);
+
   useEffect(() => {
     if (allowedClasses.length > 0 && !allowedClasses.includes(activeClass)) {
       setActiveClass(allowedClasses[0]);
@@ -900,6 +941,12 @@ export default function App() {
       setGradeExamName("");
     }
   }, [allowedExams.join(","), gradeExamName]);
+
+  useEffect(() => {
+    if (allowedSessions.length > 0 && !allowedSessions.includes(activeSessionId)) {
+      setActiveSessionId(allowedSessions[0]);
+    }
+  }, [allowedSessions.join(","), activeSessionId]);
 
   const [images, setImages] = useState<ScannedImage[]>([]);
   const [editingImageConfigId, setEditingImageConfigId] = useState<
@@ -1078,24 +1125,33 @@ export default function App() {
             JSON.stringify(coreData),
           );
 
-          if (coreData.appUsers && Array.isArray(coreData.appUsers))
-            setAppUsers(coreData.appUsers);
-          if (coreData.classes && Array.isArray(coreData.classes))
-            setClasses(coreData.classes);
-          if (coreData.examConfigs && Array.isArray(coreData.examConfigs))
-            setExamConfigs(coreData.examConfigs);
-          if (coreData.examStructures && Array.isArray(coreData.examStructures))
-            setExamStructures(coreData.examStructures);
-          if (coreData.examSessions && Array.isArray(coreData.examSessions))
-            setExamSessions(coreData.examSessions);
-          if (coreData.globalOMRConfig)
-            setGlobalOMRConfig(coreData.globalOMRConfig);
+          if (coreData.appUsers && Array.isArray(coreData.appUsers)) {
+            setAppUsers((prev) => deepEqual(prev, coreData.appUsers) ? prev : coreData.appUsers);
+          }
+          if (coreData.classes && Array.isArray(coreData.classes)) {
+            setClasses((prev) => deepEqual(prev, coreData.classes) ? prev : coreData.classes);
+          }
+          if (coreData.examConfigs && Array.isArray(coreData.examConfigs)) {
+            setExamConfigs((prev) => deepEqual(prev, coreData.examConfigs) ? prev : coreData.examConfigs);
+          }
+          if (coreData.examStructures && Array.isArray(coreData.examStructures)) {
+            setExamStructures((prev) => deepEqual(prev, coreData.examStructures) ? prev : coreData.examStructures);
+          }
+          if (coreData.examSessions && Array.isArray(coreData.examSessions)) {
+            setExamSessions((prev) => deepEqual(prev, coreData.examSessions) ? prev : coreData.examSessions);
+          }
+          if (coreData.globalOMRConfig) {
+            setGlobalOMRConfig((prev) => deepEqual(prev, coreData.globalOMRConfig) ? prev : coreData.globalOMRConfig);
+          }
           if (coreData.globalOMRTemplateImage) {
-            setGlobalOMRTemplateImage(coreData.globalOMRTemplateImage);
-            setSafeStorage(
-              "omr_template_calibration_img",
-              coreData.globalOMRTemplateImage,
-            );
+            setGlobalOMRTemplateImage((prev) => {
+              if (prev === coreData.globalOMRTemplateImage) return prev;
+              setSafeStorage(
+                "omr_template_calibration_img",
+                coreData.globalOMRTemplateImage,
+              );
+              return coreData.globalOMRTemplateImage;
+            });
           }
         }
         initialFetchDone.current = true;
@@ -2254,6 +2310,7 @@ export default function App() {
     if (isUserConstrained) {
       const assignedClasses = currentUserData?.assignedClasses || [];
       const assignedExams = currentUserData?.assignedExams || [];
+      const assignedSessions = currentUserData?.assignedSessions || [];
 
       if (assignedClasses.length > 0) {
         if (!item.className || !assignedClasses.includes(item.className))
@@ -2261,6 +2318,10 @@ export default function App() {
       }
       if (assignedExams.length > 0) {
         if (!item.examName || !assignedExams.includes(item.examName))
+          return false;
+      }
+      if (assignedSessions.length > 0) {
+        if (!assignedSessions.includes(itemSessionId))
           return false;
       }
     }
@@ -3276,6 +3337,10 @@ export default function App() {
   };
 
   const scanSelectedImages = async () => {
+    if (!userHasRecognizeImage) {
+      setErrorMsg("Tài khoản của bạn không được phân quyền Nhận dạng File ảnh.");
+      return;
+    }
     setGlobalProcessing(true);
     setErrorMsg(null);
     stopScanningRef.current = false;
@@ -3484,6 +3549,10 @@ export default function App() {
   };
 
   const gradeSelectedImages = () => {
+    if (!userHasGrade) {
+      setErrorMsg("Tài khoản của bạn không được phân quyền Chấm bài.");
+      return;
+    }
     if (!gradeExamName) {
       setErrorMsg("Vui lòng tạo ít nhất 1 Bài thi / Cấu hình mã đề ở Bước 2.");
       return;
@@ -3686,6 +3755,13 @@ export default function App() {
     newValueC: number,
     newValueStr: string,
   ) => {
+    if (!userHasEditResults) {
+      setDialogState({
+        type: "alert",
+        message: "Tài khoản của bạn không có quyền Sửa kết quả chấm.",
+      });
+      return;
+    }
     const item = scanHistory.find((i) => i.id === resultId);
     if (!item || !item.rawAnswers) return;
 
@@ -3873,6 +3949,13 @@ export default function App() {
     type: "studentId" | "examCode" | "className",
     newValue: string,
   ) => {
+    if (!userHasEditResults) {
+      setDialogState({
+        type: "alert",
+        message: "Tài khoản của bạn không có quyền Sửa kết quả chấm.",
+      });
+      return;
+    }
     if (!newValue.trim()) {
       setDialogState({
         type: "alert",
@@ -4134,12 +4217,14 @@ export default function App() {
               >
                 <Camera className="w-4 h-4 hidden sm:block" /> Chấm bài
               </button>
-              <button
-                onClick={() => setActiveTab("STEP4_RESULTS")}
-                className={`px-3 py-1.5 sm:px-4 sm:py-2 border-2 rounded-xl transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === "STEP4_RESULTS" ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white border-transparent shadow-[0_4px_12px_rgba(59,130,246,0.3)] shadow-blue-500/30" : "text-blue-600 bg-white border-blue-200 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50 hover:shadow-sm"}`}
-              >
-                <ListChecks className="w-4 h-4 hidden sm:block" /> Kết quả chấm
-              </button>
+              {userHasViewResults && (
+                <button
+                  onClick={() => setActiveTab("STEP4_RESULTS")}
+                  className={`px-3 py-1.5 sm:px-4 sm:py-2 border-2 rounded-xl transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === "STEP4_RESULTS" ? "bg-gradient-to-r from-blue-500 to-indigo-600 text-white border-transparent shadow-[0_4px_12px_rgba(59,130,246,0.3)] shadow-blue-500/30" : "text-blue-600 bg-white border-blue-200 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50 hover:shadow-sm"}`}
+                >
+                  <ListChecks className="w-4 h-4 hidden sm:block" /> Kết quả chấm
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -4371,52 +4456,58 @@ export default function App() {
                     </div>
 
                     {!scannerConfig.show && (
-                      <div className="border border-solid border-slate-200 rounded-lg bg-slate-50/50 p-6 text-center rounded-2xl mb-4 flex flex-col sm:flex-row justify-center gap-3">
-                        <button
-                          onClick={() => fileInputRef.current?.click()}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-sm"
-                        >
-                          Tải File ảnh lên (Nhiều ảnh)
-                        </button>
-                        <button
-                          onClick={() =>
-                            setScannerConfig((prev) => ({
-                              ...prev,
-                              show: true,
-                            }))
-                          }
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-sm flex items-center justify-center gap-2"
-                        >
-                          <Camera className="w-4 h-4" /> Quét ảnh (Từ máy Scan /
-                          Soi bài)
-                        </button>
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          className="hidden"
-                          accept="image/*"
-                          multiple
-                          onChange={handleFileUpload}
-                        />
-                        <input
-                          type="file"
-                          ref={cameraInputRef}
-                          className="hidden"
-                          accept="image/*"
-                          capture="environment"
-                          onChange={handleFileUpload}
-                        />
-                        <input
-                          type="file"
-                          ref={scannerDirectoryInputRef}
-                          className="hidden"
-                          //@ts-ignore
-                          webkitdirectory="true"
-                          directory="true"
-                          multiple
-                          onChange={handleFileUpload}
-                        />
-                      </div>
+                      userHasRecognizeImage ? (
+                        <div className="border border-solid border-slate-200 rounded-lg bg-slate-50/50 p-6 text-center rounded-2xl mb-4 flex flex-col sm:flex-row justify-center gap-3">
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-sm"
+                          >
+                            Tải File ảnh lên (Nhiều ảnh)
+                          </button>
+                          <button
+                            onClick={() =>
+                              setScannerConfig((prev) => ({
+                                ...prev,
+                                show: true,
+                              }))
+                            }
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-sm flex items-center justify-center gap-2"
+                          >
+                            <Camera className="w-4 h-4" /> Quét ảnh (Từ máy Scan /
+                            Soi bài)
+                          </button>
+                          <input
+                            type="file"
+                            ref={fileInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            multiple
+                            onChange={handleFileUpload}
+                          />
+                          <input
+                            type="file"
+                            ref={cameraInputRef}
+                            className="hidden"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={handleFileUpload}
+                          />
+                          <input
+                            type="file"
+                            ref={scannerDirectoryInputRef}
+                            className="hidden"
+                            //@ts-ignore
+                            webkitdirectory="true"
+                            directory="true"
+                            multiple
+                            onChange={handleFileUpload}
+                          />
+                        </div>
+                      ) : (
+                        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-sm font-medium text-center mb-4">
+                          ⚠️ Tài khoản của bạn không được phân quyền Nhận dạng File ảnh.
+                        </div>
+                      )
                     )}
 
                     {scannerConfig.show && (
@@ -4923,7 +5014,18 @@ export default function App() {
         )}
 
         {activeTab === "STEP4_RESULTS" && (
-          <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden flex flex-col min-h-[600px] rounded-2xl shadow-md">
+          !userHasViewResults ? (
+            <div className="bg-white px-6 py-12 border border-slate-200 rounded-3xl text-center text-slate-500 shadow-sm max-w-xl mx-auto my-12 space-y-4">
+              <div className="mx-auto w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center text-amber-500">
+                <ListChecks className="w-8 h-8" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">Không có quyền truy cập</h3>
+              <p className="text-slate-500 text-sm leading-relaxed">
+                Tài khoản của bạn không có quyền xem kết quả chấm cho các Kỳ thi, Bài thi, Lớp/Phòng được phân quyền. Vui lòng liên hệ Admin để được hỗ trợ.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden flex flex-col min-h-[600px] rounded-2xl shadow-md">
             <div className="border-b border-slate-200 bg-slate-100 flex flex-col">
               <div className="flex p-3 gap-3 bg-slate-100 items-center justify-center">
                 <button
@@ -6127,6 +6229,7 @@ export default function App() {
               )}
             </div>
           </div>
+          )
         )}
 
         {activeTab === "STEP2_KEY" && (
@@ -7716,6 +7819,11 @@ export default function App() {
                       role: newUserInput.role,
                       assignedClasses: [],
                       assignedExams: [],
+                      assignedSessions: [],
+                      permissionRecognizeImage: true,
+                      permissionGrade: true,
+                      permissionViewResults: true,
+                      permissionEditResults: true,
                     };
                     setAppUsers([...appUsers, newUser]);
                     setShowAddUserModal(false);
@@ -7740,103 +7848,185 @@ export default function App() {
           if (!user) return null;
           return (
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-              <div className="bg-white border border-slate-200 rounded-2xl shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[80vh]">
-                <div className="bg-indigo-600 border-b border-indigo-700 text-white px-5 py-4 font-semibold text-lg flex justify-between items-center rounded-t-2xl">
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="bg-indigo-600 border-b border-indigo-700 text-white px-5 py-4 font-semibold text-lg flex justify-between items-center rounded-t-2xl shadow-[0_2px_10px_rgba(0,0,0,0.1)]">
                   <span>
-                    Phân quyền tài khoản:{" "}
-                    <span className="underline font-bold">{user.username}</span>
+                    Phân quyền hoạt động & dữ liệu:{" "}
+                    <span className="underline font-bold text-yellow-300">{user.username}</span>
                   </span>
                   <button
                     onClick={() => setShowPermissionModal(null)}
-                    className="text-white hover:text-slate-200 text-sm font-medium"
+                    className="text-white hover:text-slate-200 text-sm font-medium w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition"
                   >
                     ✕
                   </button>
                 </div>
-                <div className="p-6 overflow-y-auto space-y-6 flex-1">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">
-                      LỚP / PHÒNG THI ĐƯỢC PHÉP
-                    </h4>
-                    <p className="text-xs text-slate-500 mb-2">
-                      Nếu không chọn lớp nào, người dùng có quyền Xem/Chấm tất
-                      cả các lớp.
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {classes.map((c) => {
-                        const isAssigned = tempAssignedClasses.includes(c);
-                        return (
-                          <label
-                            key={"cls_" + c}
-                            className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer p-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200"
-                          >
-                            <input
-                              type="checkbox"
-                              className="accent-indigo-600 w-4 h-4 rounded"
-                              checked={isAssigned}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setTempAssignedClasses([
-                                    ...tempAssignedClasses,
-                                    c,
-                                  ]);
-                                } else {
-                                  setTempAssignedClasses(
-                                    tempAssignedClasses.filter((x) => x !== c),
-                                  );
-                                }
-                              }}
-                            />
-                            {c}
-                          </label>
-                        );
-                      })}
+                <div className="p-6 overflow-y-auto flex-1 bg-slate-50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Column 1: DATA SCOPE PERMISSIONS */}
+                    <div className="space-y-6 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                      <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2 mb-2 uppercase tracking-wide flex items-center gap-1.5 text-blue-600">
+                        <Folder className="w-4 h-4" /> Phạm vi truy cập dữ liệu
+                      </h3>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between items-center">
+                          <span>Kỳ thi được phép</span>
+                          <span className="text-[10px] text-slate-400 font-normal italic">Để trống = Cho phép tất cả</span>
+                        </h4>
+                        <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto p-2 border border-slate-200 rounded-lg bg-slate-50/50">
+                          {examSessions.map((session) => {
+                            const isAssigned = tempAssignedSessions.includes(session.id);
+                            return (
+                              <label key={"ses_" + session.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer p-1.5 hover:bg-white rounded transition">
+                                <input
+                                  type="checkbox"
+                                  className="accent-indigo-600 w-4 h-4 rounded"
+                                  checked={isAssigned}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setTempAssignedSessions([...tempAssignedSessions, session.id]);
+                                    } else {
+                                      setTempAssignedSessions(tempAssignedSessions.filter((x) => x !== session.id));
+                                    }
+                                  }}
+                                />
+                                <span className="truncate" title={session.name}>{session.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between items-center">
+                          <span>Bài thi được phép</span>
+                          <span className="text-[10px] text-slate-400 font-normal italic">Để trống = Cho phép tất cả</span>
+                        </h4>
+                        <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto p-2 border border-slate-200 rounded-lg bg-slate-50/50">
+                          {allExamNamesStr.map((ex) => {
+                            const isAssigned = tempAssignedExams.includes(ex);
+                            return (
+                              <label key={"ex_" + ex} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer p-1.5 hover:bg-white rounded transition">
+                                <input
+                                  type="checkbox"
+                                  className="accent-indigo-600 w-4 h-4 rounded"
+                                  checked={isAssigned}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setTempAssignedExams([...tempAssignedExams, ex]);
+                                    } else {
+                                      setTempAssignedExams(tempAssignedExams.filter((x) => x !== ex));
+                                    }
+                                  }}
+                                />
+                                <span className="truncate" title={ex}>{ex}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex justify-between items-center">
+                          <span>Lớp / Phòng thi được phép</span>
+                          <span className="text-[10px] text-slate-400 font-normal italic">Để trống = Cho phép tất cả</span>
+                        </h4>
+                        <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto p-2 border border-slate-200 rounded-lg bg-slate-50/50">
+                          {classes.map((c) => {
+                            const isAssigned = tempAssignedClasses.includes(c);
+                            return (
+                              <label key={"cls_" + c} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer p-1.5 hover:bg-white rounded transition">
+                                <input
+                                  type="checkbox"
+                                  className="accent-indigo-600 w-4 h-4 rounded"
+                                  checked={isAssigned}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setTempAssignedClasses([...tempAssignedClasses, c]);
+                                    } else {
+                                      setTempAssignedClasses(tempAssignedClasses.filter((x) => x !== c));
+                                    }
+                                  }}
+                                />
+                                <span className="truncate" title={c}>{c}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-800 mb-3 border-b pb-2">
-                      BÀI THI ĐƯỢC PHÉP
-                    </h4>
-                    <p className="text-xs text-slate-500 mb-2">
-                      Nếu không chọn bài thi nào, người dùng có quyền Xem/Chấm
-                      tất cả các bài thi.
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {allExamNamesStr.map((ex) => {
-                        const isAssigned = tempAssignedExams.includes(ex);
-                        return (
-                          <label
-                            key={"ex_" + ex}
-                            className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer p-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200"
-                          >
+
+                    {/* Column 2: FUNCTIONAL PERMISSIONS */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2 mb-2 uppercase tracking-wide flex items-center gap-1.5 text-indigo-600">
+                          <CheckCircle className="w-4 h-4" /> Quyền chức năng hoạt động
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-4 bg-indigo-50/50 p-2 border border-indigo-100/50 rounded-lg text-slate-600 leading-relaxed">
+                          Cấu hình các quyền hạn nghiệp vụ của tài khoản này khi xử lý dữ liệu Kỳ thi, Bài thi, Lớp/Phòng được phân quyền ở cột trái.
+                        </p>
+                        
+                        <div className="space-y-3">
+                          <label className="flex items-start gap-3 text-sm text-slate-700 cursor-pointer p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition">
                             <input
                               type="checkbox"
-                              className="accent-indigo-600 w-4 h-4 rounded"
-                              checked={isAssigned}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setTempAssignedExams([
-                                    ...tempAssignedExams,
-                                    ex,
-                                  ]);
-                                } else {
-                                  setTempAssignedExams(
-                                    tempAssignedExams.filter((x) => x !== ex),
-                                  );
-                                }
-                              }}
+                              className="accent-indigo-600 w-4 h-4 rounded mt-0.5 flex-shrink-0"
+                              checked={tempPermissionRecognizeImage}
+                              onChange={(e) => setTempPermissionRecognizeImage(e.target.checked)}
                             />
-                            {ex}
+                            <div>
+                              <span className="font-semibold text-slate-800 block text-xs sm:text-sm">Nhận dạng File ảnh</span>
+                              <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Cho phép tải ảnh/quét ảnh OMR để nhận dạng và khớp mẫu.</span>
+                            </div>
                           </label>
-                        );
-                      })}
+
+                          <label className="flex items-start gap-3 text-sm text-slate-700 cursor-pointer p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition">
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4 rounded mt-0.5 flex-shrink-0"
+                              checked={tempPermissionGrade}
+                              onChange={(e) => setTempPermissionGrade(e.target.checked)}
+                            />
+                            <div>
+                              <span className="font-semibold text-slate-800 block text-xs sm:text-sm">Chấm bài</span>
+                              <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Cho phép thực hiện so khớp đáp án để chấm điểm bài làm.</span>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start gap-3 text-sm text-slate-700 cursor-pointer p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition">
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4 rounded mt-0.5 flex-shrink-0"
+                              checked={tempPermissionViewResults}
+                              onChange={(e) => setTempPermissionViewResults(e.target.checked)}
+                            />
+                            <div>
+                              <span className="font-semibold text-slate-800 block text-xs sm:text-sm">Xem kết quả chấm</span>
+                              <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Cho phép truy cập tab Kết quả chấm để xem phổ điểm và danh sách bài làm.</span>
+                            </div>
+                          </label>
+
+                          <label className="flex items-start gap-3 text-sm text-slate-700 cursor-pointer p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition">
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4 rounded mt-0.5 flex-shrink-0"
+                              checked={tempPermissionEditResults}
+                              onChange={(e) => setTempPermissionEditResults(e.target.checked)}
+                            />
+                            <div>
+                              <span className="font-semibold text-slate-800 block text-xs sm:text-sm">Sửa kết quả chấm</span>
+                              <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Cho phép sửa Số báo danh, Mã đề, và chi tiết lựa chọn đáp án các phần.</span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-                <div className="bg-slate-50 border-t border-slate-200 p-4 flex justify-end gap-3 rounded-b-2xl shadow-[inset_0_1px_0_rgba(255,255,255,1)]">
+                <div className="bg-slate-100 border-t border-slate-200 p-4 flex justify-end gap-3 rounded-b-2xl shadow-[inset_0_1px_0_rgba(255,255,255,1)]">
                   <button
                     onClick={() => setShowPermissionModal(null)}
-                    className="border border-slate-300 text-slate-700 font-medium py-2 px-4 rounded-xl hover:bg-slate-100 transition text-sm"
+                    className="border border-slate-300 bg-white text-slate-700 font-medium py-2 px-5 rounded-xl hover:bg-slate-50 transition text-sm hover:shadow-sm"
                   >
                     Huỷ bỏ
                   </button>
@@ -7849,6 +8039,11 @@ export default function App() {
                                 ...u,
                                 assignedClasses: tempAssignedClasses,
                                 assignedExams: tempAssignedExams,
+                                assignedSessions: tempAssignedSessions,
+                                permissionRecognizeImage: tempPermissionRecognizeImage,
+                                permissionGrade: tempPermissionGrade,
+                                permissionViewResults: tempPermissionViewResults,
+                                permissionEditResults: tempPermissionEditResults,
                               }
                             : u,
                         ),
