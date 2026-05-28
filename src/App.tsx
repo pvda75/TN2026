@@ -39,6 +39,7 @@ import {
   LogOut,
   BarChart3,
   Folder,
+  AlertTriangle,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -1758,6 +1759,7 @@ export default function App() {
     message: string;
     defaultValue?: string;
     onConfirm?: (val?: string) => void;
+    variant?: "danger" | "warning" | "success";
   } | null>(null);
 
   useEffect(() => {
@@ -3758,6 +3760,7 @@ export default function App() {
     if (!userHasEditResults) {
       setDialogState({
         type: "alert",
+        variant: "danger",
         message: "Tài khoản của bạn không có quyền Sửa kết quả chấm.",
       });
       return;
@@ -3952,6 +3955,7 @@ export default function App() {
     if (!userHasEditResults) {
       setDialogState({
         type: "alert",
+        variant: "danger",
         message: "Tài khoản của bạn không có quyền Sửa kết quả chấm.",
       });
       return;
@@ -7673,15 +7677,36 @@ export default function App() {
       {dialogState && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white border border-slate-200 rounded-2xl shadow-xl max-w-sm w-full overflow-hidden">
-            <div className="bg-slate-50 border-b border-slate-200 text-slate-800 px-4 py-3 font-semibold text-sm flex justify-between items-center">
-              <span>
-                {dialogState.type === "confirm" ? "XÁC NHẬN" : "THÔNG BÁO"}
+            <div className={`${
+              dialogState.variant === "danger"
+                ? "bg-red-600 border-b border-red-700 text-white"
+                : "bg-slate-50 border-b border-slate-200 text-slate-800"
+            } px-4 py-3 font-semibold text-sm flex justify-between items-center`}>
+              <span className="flex items-center gap-1.5 uppercase tracking-wide">
+                {dialogState.variant === "danger" && <AlertTriangle className="w-4 h-4 text-white" />}
+                {dialogState.variant === "danger"
+                  ? "Không có quyền"
+                  : dialogState.type === "confirm"
+                    ? "XÁC NHẬN"
+                    : "THÔNG BÁO"}
               </span>
             </div>
             <div className="p-6 bg-white">
-              <p className="font-sans font-medium text-slate-800">
-                {dialogState.message}
-              </p>
+              <div className="flex items-start gap-3">
+                {dialogState.variant === "danger" && (
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center text-red-600 flex-shrink-0">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <p className={`font-sans font-medium leading-relaxed ${
+                    dialogState.variant === "danger" ? "text-red-700 text-sm font-semibold" : "text-slate-800"
+                  }`}>
+                    {dialogState.message}
+                  </p>
+                </div>
+              </div>
+
               {dialogState.type === "prompt" && (
                 <input
                   type="text"
@@ -7696,7 +7721,7 @@ export default function App() {
                   dialogState.type === "prompt") && (
                   <button
                     onClick={() => setDialogState(null)}
-                    className="border border-slate-200 rounded-lg bg-white px-4 py-2 font-medium text-sm hover:bg-slate-50/50 transition"
+                    className="border border-slate-200 rounded-lg bg-white px-4 py-2 font-medium text-sm hover:bg-slate-50/50 transition text-slate-700"
                   >
                     Hủy
                   </button>
@@ -7717,7 +7742,11 @@ export default function App() {
                       currentDialog.onConfirm(val);
                     }
                   }}
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-indigo-700 transition"
+                  className={`${
+                    dialogState.variant === "danger"
+                      ? "bg-red-600 hover:bg-red-700 active:bg-red-800 focus:ring-red-500 text-white"
+                      : "bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500 text-white"
+                  } px-4 py-2 rounded-lg font-medium text-sm transition focus:outline-none`}
                 >
                   {dialogState.type === "confirm" ||
                   dialogState.type === "prompt"
