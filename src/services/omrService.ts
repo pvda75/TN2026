@@ -182,7 +182,12 @@ export const processOMR = async (imageCanvas: HTMLCanvasElement, config: OMRConf
      try {
          const refBase64 = referenceImages[0];
          const refImgEl = document.createElement('img');
-         refImgEl.src = `data:image/jpeg;base64,${refBase64}`;
+          refImgEl.crossOrigin = "anonymous";
+         if (refBase64.startsWith("http://") || refBase64.startsWith("https://") || refBase64.startsWith("data:")) {
+              refImgEl.src = refBase64;
+          } else {
+              refImgEl.src = `data:image/jpeg;base64,${refBase64}`;
+          }
          await new Promise((resolve, reject) => { 
              refImgEl.onload = resolve;
              refImgEl.onerror = reject;

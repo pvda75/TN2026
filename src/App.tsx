@@ -199,6 +199,27 @@ const getDefaultKey = (structureId: string, structures: ExamStructure[]) => {
   return createEmptyAnswers(DEFAULT_STRUCTURES[0]);
 };
 
+const stripDataUrls = (val: any): any => {
+  if (val === null || val === undefined) return val;
+  if (typeof val === "string") {
+    if (val.startsWith("data:")) {
+      return "";
+    }
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.map(stripDataUrls);
+  }
+  if (typeof val === "object") {
+    const res: any = {};
+    for (const k of Object.keys(val)) {
+      res[k] = stripDataUrls(val[k]);
+    }
+    return res;
+  }
+  return val;
+};
+
 export interface ScannedImage {
   id: string;
   src: string;
@@ -473,11 +494,12 @@ export default function App() {
       examStructures: snapExamStructures,
       examSessions: snapExamSessions,
       globalOMRConfig: snapGlobalOMRConfig,
-      ...(snapGlobalOMRTemplateImage
+      ...(snapGlobalOMRTemplateImage && !snapGlobalOMRTemplateImage.startsWith("data:")
         ? { globalOMRTemplateImage: snapGlobalOMRTemplateImage }
         : {}),
     };
-    const currentGlobalStr = JSON.stringify(pushData);
+    const cleanPushData = stripDataUrls(pushData);
+    const currentGlobalStr = JSON.stringify(cleanPushData);
     const lastSyncedGlobal = getSafeSessionStorage("last_synced_globals");
 
     // 2. Clear state immediately
@@ -504,7 +526,7 @@ export default function App() {
         const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
         return { ...safeImg, result: safeResult };
       });
-      const cleanSafeImages = JSON.parse(JSON.stringify(safeImages));
+      const cleanSafeImages = stripDataUrls(JSON.parse(JSON.stringify(safeImages)));
       if (firestoreQuotaExceeded) return;
       setDoc(
         doc(db, "globals", queueDocId),
@@ -527,7 +549,7 @@ export default function App() {
           item as any;
         const metadataStr = JSON.stringify(metadataOnly);
 
-        const cleanMetadata = JSON.parse(metadataStr);
+        const cleanMetadata = stripDataUrls(JSON.parse(metadataStr));
         if (metadataOnly.timestamp instanceof Date) {
           cleanMetadata.timestamp = metadataOnly.timestamp;
         }
@@ -574,7 +596,9 @@ export default function App() {
   );
   const [globalOMRTemplateImage, setGlobalOMRTemplateImage] = useState<
     string | null
-  >(null);
+  >(() => {
+    return getSafeStorage("omr_template_calibration_img") as string || null;
+  });
 
   useEffect(() => {
     const savedConfig = getSafeStorage("omr_calibration_config");
@@ -1264,7 +1288,7 @@ export default function App() {
     if (globalOMRConfig) {
       syncObj.globalOMRConfig = globalOMRConfig;
     }
-    if (globalOMRTemplateImage) {
+    if (globalOMRTemplateImage && !globalOMRTemplateImage.startsWith("data:")) {
       syncObj.globalOMRTemplateImage = globalOMRTemplateImage;
     }
     const sortedSyncObj: any = {};
@@ -1273,7 +1297,7 @@ export default function App() {
       .forEach((k) => {
         sortedSyncObj[k] = syncObj[k];
       });
-    const currentGlobalStr = JSON.stringify(sortedSyncObj);
+    const currentGlobalStr = JSON.stringify(stripDataUrls(sortedSyncObj));
     const lastSyncedGlobalStr = getSafeSessionStorage("last_synced_globals");
 
     const isChanged = currentGlobalStr !== lastSyncedGlobalStr;
@@ -1299,10 +1323,10 @@ export default function App() {
         updatedAt: now,
       };
       if (globalOMRConfig) pushData.globalOMRConfig = globalOMRConfig;
-      if (globalOMRTemplateImage)
+      if (globalOMRTemplateImage && !globalOMRTemplateImage.startsWith("data:"))
         pushData.globalOMRTemplateImage = globalOMRTemplateImage;
 
-      const cleanPushData = JSON.parse(JSON.stringify(pushData));
+      const cleanPushData = stripDataUrls(JSON.parse(JSON.stringify(pushData)));
 
       if (firestoreQuotaExceeded) return;
 
@@ -1329,6 +1353,28 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (!globalOMRTemplateImage || !globalOMRTemplateImage.startsWith("data:")) return;
+
+    let isCancelled = false;
+    const uploadTemplate = async () => {
+      try {
+        const path = `templates/global_omr_template_${currentUserId || "default"}.jpg`;
+        const url = await uploadBase64ToStorage(path, globalOMRTemplateImage);
+        if (!isCancelled) {
+          setGlobalOMRTemplateImage(url);
+          setSafeStorage("omr_template_calibration_img", url);
+        }
+      } catch (e) {
+        console.error("Failed to upload global OMR template image:", e);
+      }
+    };
+    uploadTemplate();
+    return () => {
+      isCancelled = true;
+    };
+  }, [globalOMRTemplateImage, currentUserId]);
+
+  useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
     const backupToFirebase = async () => {
       if (firestoreQuotaExceeded) return;
@@ -1351,7 +1397,7 @@ export default function App() {
           const metadataStr = JSON.stringify(metadataOnly);
 
           // Parse back to remove undefined properties which Firestore rejects
-          const cleanMetadata = JSON.parse(metadataStr);
+          const cleanMetadata = stripDataUrls(JSON.parse(metadataStr));
           // Restore timestamp as Date if it existed natively
           if (metadataOnly.timestamp instanceof Date) {
             cleanMetadata.timestamp = metadataOnly.timestamp;
@@ -1555,8 +1601,8 @@ export default function App() {
         return { ...safeImg, result: safeResult };
       });
 
-      const safeImagesStr = JSON.stringify(safeImages);
-      const cleanSafeImages = JSON.parse(safeImagesStr);
+      const cleanSafeImages = stripDataUrls(safeImages);
+      const safeImagesStr = JSON.stringify(cleanSafeImages);
 
       const snapshotOfUnpushed = new Set(images.map((i: any) => i.id));
       const snapshotOfDeleted = new Set(deletedImageIds.current);
@@ -2610,8 +2656,12 @@ export default function App() {
       const refs = referenceImages.filter((r) => r.base64).map((r) => r.base64);
       const calibTemplate = getSafeStorage("omr_template_calibration_img");
       if (calibTemplate && refs.length === 0) {
-        const calibBase64 = calibTemplate.split(",")[1] || calibTemplate;
-        refs.push(calibBase64);
+        if (calibTemplate.startsWith("http") || calibTemplate.startsWith("data:")) {
+          refs.push(calibTemplate);
+        } else {
+          const calibBase64 = calibTemplate.split(",")[1] || calibTemplate;
+          refs.push(calibBase64);
+        }
       }
 
       studentAnswers = await processOMR(canvas, omrConfig, refs);
@@ -3466,9 +3516,12 @@ export default function App() {
 
         const calibTemplate = getSafeStorage("omr_template_calibration_img");
         if (calibTemplate && refs.length === 0) {
-          // Extracts base64 part
-          const calibBase64 = calibTemplate.split(",")[1] || calibTemplate;
-          refs.push(calibBase64);
+          if (calibTemplate.startsWith("http") || calibTemplate.startsWith("data:")) {
+            refs.push(calibTemplate);
+          } else {
+            const calibBase64 = calibTemplate.split(",")[1] || calibTemplate;
+            refs.push(calibBase64);
+          }
         }
 
         studentAnswers = await processOMR(canvas, omrConfig, refs);
@@ -4772,10 +4825,19 @@ export default function App() {
                                   );
                                 }}
                               >
-                                <img
-                                  src={img.src}
-                                  className="absolute inset-0 w-full h-full object-cover"
-                                />
+                                {img.src ? (
+                                  <img
+                                    src={img.src}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 p-1 text-center">
+                                    <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2 mt-2"></div>
+                                    <span className="text-[9px] text-slate-500 font-medium leading-normal max-w-[90%]">
+                                      Đang đồng bộ ảnh từ máy gốc...
+                                    </span>
+                                  </div>
+                                )}
                                 <div className="absolute top-2 left-2 flex gap-1">
                                   <div
                                     className={`w-5 h-5 rounded border flex items-center justify-center ${img.selected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white/80 border-slate-300"}`}
@@ -5972,8 +6034,14 @@ export default function App() {
                         </div>
                       </div>
                     ) : (
-                      <div className="p-8 text-center text-slate-400  text-xs uppercase">
-                        Không có ảnh
+                      <div className="w-full h-fit flex flex-col items-center justify-center p-8 text-center bg-slate-100 border border-dashed border-slate-200 rounded-lg py-16">
+                        <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+                        <p className="text-xs text-slate-600 font-medium mb-1">
+                          Đang đồng bộ file ảnh từ thiết bị khác...
+                        </p>
+                        <p className="text-[10px] text-slate-400 max-w-xs leading-normal">
+                          Nếu ảnh này được chấm từ một máy tính khác, xin vui lòng chờ giây lát để file ảnh hoàn thành việc đồng bộ hóa qua đám mây.
+                        </p>
                       </div>
                     )}
                   </div>
