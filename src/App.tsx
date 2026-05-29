@@ -17,6 +17,8 @@ import {
   terminate,
   setLogLevel,
   disableNetwork,
+  query,
+  where,
 } from "firebase/firestore";
 import { db, uploadBase64ToStorage, deleteImageFromStorage } from "./firebase";
 import * as XLSX from "xlsx";
@@ -461,6 +463,7 @@ export default function App() {
       (u) => u.username === cleanUsername && u.passwordHash === cleanPassword,
     );
     if (user) {
+      isLoggingOutRef.current = false;
       setUserRole(user.role);
       setCurrentUserId(user.id);
       setSafeStorage("app_user_role", user.role);
@@ -513,6 +516,28 @@ export default function App() {
     setLoginUsername("");
     setLoginPassword("");
     setLoginError("");
+    setImages([]);
+    setScanHistory([]);
+    setReferenceImages([]);
+    setClasses(["12A1", "12A2"]);
+    setActiveClass("12A1");
+    setExamSessions([{ id: "SESSION_DEFAULT", name: "Kỳ thi chung" }]);
+    setActiveSessionId("SESSION_DEFAULT");
+    setExamStructures(DEFAULT_STRUCTURES);
+    setExamConfigs([
+      {
+        structureId: "MATH",
+        key: DEFAULT_MATH_KEY,
+        name: "TOÁN HỌC",
+        code: "1001",
+      },
+      {
+        structureId: "SOCIAL",
+        key: DEFAULT_SOCIAL_KEY,
+        name: "LỊCH SỬ",
+        code: "1002",
+      },
+    ]);
 
     // 3. Background sync
     if (uid && (backupImages.length > 0 || backupDeletedImageIds.size > 0)) {
@@ -1099,7 +1124,6 @@ export default function App() {
   useEffect(() => {
     if (firestoreQuotaExceeded) {
       initialFetchDone.current = true;
-      initialHistoryFetchDone.current = true;
       return () => {};
     }
     const unsub = onSnapshot(
@@ -1189,59 +1213,56 @@ export default function App() {
       },
     );
 
-    // Subscribe to scanHistory
-    const unsubHistory = onSnapshot(
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (firestoreQuotaExceeded || !currentUserId) {
+      initialHistoryFetchDone.current = true;
+      return () => {};
+    }
+
+    initialHistoryFetchDone.current = false;
+
+    // Subscribe to scanHistory matched with activeSessionId to load data fast and save query speed
+    const q = query(
       collection(db, "scanHistory"),
+      where("sessionId", "==", activeSessionId || "SESSION_DEFAULT")
+    );
+
+    const unsubHistory = onSnapshot(
+      q,
       (snapshot) => {
         setScanHistory((prevHistory) => {
-          let nextHistory = [...prevHistory];
-          snapshot.docChanges().forEach((change) => {
-            const data = change.doc.data() as any;
-            if (change.type === "added" || change.type === "modified") {
-              if (data.timestamp?.toDate) {
-                data.timestamp = data.timestamp.toDate();
-              } else if (data.timestamp) {
-                data.timestamp = new Date(data.timestamp);
-              }
-              const { imageSrc, originalImageSrc, ...metadataOnly } = data;
-              setSafeSessionStorage(
-                "sync_history_" + data.id,
-                JSON.stringify(metadataOnly),
-              );
+          // Remove activeSessionId items from previous history to clear deletions/updates
+          let nextHistory = prevHistory.filter(
+            (p) => (p.sessionId || "SESSION_DEFAULT") !== (activeSessionId || "SESSION_DEFAULT")
+          );
 
-              const existingIndex = nextHistory.findIndex(
-                (p) => p.id === data.id,
-              );
-              if (existingIndex >= 0) {
-                const localItem = nextHistory[existingIndex];
-                const localT =
-                  localItem.updatedAt ||
-                  (localItem.timestamp instanceof Date
-                    ? localItem.timestamp.getTime()
-                    : new Date(localItem.timestamp || 0).getTime());
-                const dataT =
-                  data.updatedAt ||
-                  (data.timestamp instanceof Date
-                    ? data.timestamp.getTime()
-                    : new Date(data.timestamp || 0).getTime());
-
-                if (dataT >= localT) {
-                  if (localItem.imageSrc && !data.imageSrc) {
-                    data.imageSrc = localItem.imageSrc;
-                    data.originalImageSrc = localItem.originalImageSrc;
-                  }
-                  nextHistory[existingIndex] = data;
-                }
-              } else {
-                nextHistory.push(data);
-              }
-            } else if (change.type === "removed") {
-              const id = data.id || change.doc.id;
-              nextHistory = nextHistory.filter((p) => p.id !== id);
-              try {
-                sessionStorage.removeItem("sync_history_" + id);
-              } catch {}
+          snapshot.docs.forEach((docSnap) => {
+            const data = docSnap.data() as any;
+            if (data.timestamp?.toDate) {
+              data.timestamp = data.timestamp.toDate();
+            } else if (data.timestamp) {
+              data.timestamp = new Date(data.timestamp);
             }
+            const { imageSrc, originalImageSrc, ...metadataOnly } = data;
+            setSafeSessionStorage(
+              "sync_history_" + data.id,
+              JSON.stringify(metadataOnly),
+            );
+
+            // Preserve local high-res image src if present locally
+            const localItem = prevHistory.find((p) => p.id === data.id);
+            if (localItem) {
+              if (localItem.imageSrc && !data.imageSrc) {
+                data.imageSrc = localItem.imageSrc;
+                data.originalImageSrc = localItem.originalImageSrc;
+              }
+            }
+            nextHistory.push(data);
           });
 
           nextHistory.sort((a, b) => {
@@ -1269,10 +1290,9 @@ export default function App() {
     );
 
     return () => {
-      unsub();
       unsubHistory();
     };
-  }, []);
+  }, [activeSessionId, currentUserId]);
 
   useEffect(() => {
     if (!initialFetchDone.current) return;
@@ -1439,11 +1459,11 @@ export default function App() {
   // FIREBASE SYNC: scanQueue
   useEffect(() => {
     initialQueueFetchDone.current = false;
-    if (firestoreQuotaExceeded) {
+    if (!currentUserId || firestoreQuotaExceeded) {
       initialQueueFetchDone.current = true;
       return () => {};
     }
-    const queueDocId = "scanQueue_" + (currentUserId || "unknown");
+    const queueDocId = "scanQueue_" + currentUserId;
     const unsubScanQueue = onSnapshot(
       doc(db, "globals", queueDocId),
       (snapshot) => {
@@ -1697,11 +1717,18 @@ export default function App() {
 
   // Load initial data from localforage
   useEffect(() => {
+    if (!currentUserId) {
+      setImages([]);
+      setScanHistory([]);
+      isLoadedRef.current = true;
+      return () => {};
+    }
     let isMounted = true;
+    isLoadedRef.current = false;
     const loadData = async () => {
       try {
         const savedHistory =
-          await localforage.getItem<any[]>("autograde_history");
+          await localforage.getItem<any[]>(`autograde_history_${currentUserId}`);
         if (isMounted && savedHistory && Array.isArray(savedHistory)) {
           const parsed = savedHistory.map((item: any) => {
             let totalScore = item.score || 0;
@@ -1769,7 +1796,7 @@ export default function App() {
         }
 
         const savedImages =
-          await localforage.getItem<ScannedImage[]>("autograde_images");
+          await localforage.getItem<ScannedImage[]>(`autograde_images_${currentUserId}`);
         if (isMounted && savedImages && Array.isArray(savedImages)) {
           setImages((prev) => {
             // If online and we already have active items from Firestore, trust them as the source of truth
@@ -1841,7 +1868,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentUserId]);
 
   const [dialogState, setDialogState] = useState<{
     type: "alert" | "confirm" | "prompt";
@@ -1874,22 +1901,22 @@ export default function App() {
   }, [globalOMRConfig]);
 
   useEffect(() => {
-    if (!isLoadedRef.current || isLoggingOutRef.current) return;
+    if (!isLoadedRef.current || isLoggingOutRef.current || !currentUserId) return;
     try {
-      localforage.setItem("autograde_history", scanHistory);
+      localforage.setItem(`autograde_history_${currentUserId}`, scanHistory);
     } catch (err) {
       console.error("Failed to save history:", err);
     }
-  }, [scanHistory]);
+  }, [scanHistory, currentUserId]);
 
   useEffect(() => {
-    if (!isLoadedRef.current || isLoggingOutRef.current) return;
+    if (!isLoadedRef.current || isLoggingOutRef.current || !currentUserId) return;
     try {
-      localforage.setItem("autograde_images", images);
+      localforage.setItem(`autograde_images_${currentUserId}`, images);
     } catch (err) {
       console.error("Failed to save images:", err);
     }
-  }, [images]);
+  }, [images, currentUserId]);
 
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2259,7 +2286,7 @@ export default function App() {
         }
         return item;
       });
-      localforage.setItem("autograde_history", next);
+      localforage.setItem(`autograde_history_${currentUserId}`, next);
       return next;
     });
 
@@ -2553,7 +2580,7 @@ export default function App() {
       }),
     );
 
-    await localforage.setItem("autograde_history", updatedHistory);
+    await localforage.setItem(`autograde_history_${currentUserId}`, updatedHistory);
   };
 
   const recalculateSelectedHistory = async (e: React.MouseEvent) => {
@@ -2599,7 +2626,7 @@ export default function App() {
         newHistory.find((i) => i.id === selectedResult.id) || null,
       );
     }
-    await localforage.setItem("autograde_history", newHistory);
+    await localforage.setItem(`autograde_history_${currentUserId}`, newHistory);
     setDialogState({ type: "alert", message: "Cập nhật lại điểm thành công!" });
   };
 
@@ -2771,7 +2798,7 @@ export default function App() {
               const next = prev.map((p) =>
                 p.id === resultId ? updatedItem : p,
               );
-              localforage.setItem("autograde_history", next);
+              localforage.setItem(`autograde_history_${currentUserId}`, next);
               return next;
             });
 
@@ -3947,7 +3974,7 @@ export default function App() {
         setScanHistory((prev) => {
           addUnpushedHistoryId(resultId);
           const next = prev.map((p) => (p.id === resultId ? updatedItem : p));
-          localforage.setItem("autograde_history", next);
+          localforage.setItem(`autograde_history_${currentUserId}`, next);
           return next;
         });
 
@@ -4042,7 +4069,7 @@ export default function App() {
     setScanHistory((prev) => {
       addUnpushedHistoryId(resultId);
       const next = prev.map((p) => (p.id === resultId ? updatedItem : p));
-      localforage.setItem("autograde_history", next);
+      localforage.setItem(`autograde_history_${currentUserId}`, next);
       return next;
     });
 
