@@ -1496,6 +1496,8 @@ export default function App() {
               (p) =>
                 !remoteImages.find((r: any) => r.id === p.id) &&
                 !deletedImageIds.current.has(p.id) &&
+                (currentSessionCaptureIds.current.has(p.id) ||
+                  unpushedImageIds.current.has(p.id)) &&
                 ((p as any).isUploadingToFirebase ||
                   p.status === "processing" ||
                   unpushedImageIds.current.has(p.id)),
@@ -1770,21 +1772,62 @@ export default function App() {
           await localforage.getItem<ScannedImage[]>("autograde_images");
         if (isMounted && savedImages && Array.isArray(savedImages)) {
           setImages((prev) => {
+            // If online and we already have active items from Firestore, trust them as the source of truth
+            if (initialQueueFetchDone.current) {
+              return prev.map((p) => {
+                const s = savedImages.find((item) => item.id === p.id);
+                if (s) {
+                  return {
+                    ...p,
+                    src: p.src || s.src,
+                    processedDataUrl: p.processedDataUrl || s.processedDataUrl,
+                    warpedDataUrl: p.warpedDataUrl || s.warpedDataUrl,
+                    result: p.result && s.result
+                      ? {
+                          ...p.result,
+                          imageSrc: p.result.imageSrc || s.result.imageSrc,
+                          originalImageSrc: p.result.originalImageSrc || s.result.originalImageSrc,
+                        }
+                      : p.result || s.result,
+                  };
+                }
+                return p;
+              });
+            }
+
             if (prev.length === 0) {
               return savedImages;
             }
-            // Merge strategy: savedImages contains the last immediate truth before reload (or close).
-            // 'prev' contains Firebase's last successful sync.
-            // We want to keep items from savedImages that are NOT in prev, OR are still "processing" / missing firebase urls.
+
+            // Merge logic if some are already present but we are not fully synced yet
             const merged = [...prev];
             for (const s of savedImages) {
-              if (!merged.some((m) => m.id === s.id)) {
-                merged.push(s);
+              const idx = merged.findIndex((m) => m.id === s.id);
+              if (idx === -1) {
+                // Only merge item if it is newly captured or offline-unsynced on this device
+                if (s.status === "pending" || s.status === "processing" || unpushedImageIds.current.has(s.id)) {
+                  merged.push(s);
+                }
+              } else {
+                merged[idx] = {
+                  ...merged[idx],
+                  src: merged[idx].src || s.src,
+                  processedDataUrl: merged[idx].processedDataUrl || s.processedDataUrl,
+                  warpedDataUrl: merged[idx].warpedDataUrl || s.warpedDataUrl,
+                };
+                if (s.result) {
+                  if (merged[idx].result) {
+                    merged[idx].result = {
+                      ...merged[idx].result,
+                      imageSrc: merged[idx].result.imageSrc || s.result.imageSrc,
+                      originalImageSrc: merged[idx].result.originalImageSrc || s.result.originalImageSrc,
+                    };
+                  } else {
+                    merged[idx].result = s.result;
+                  }
+                }
               }
             }
-            // We also want to remove items from merged that were explicitly deleted in savedImages but still in prev? No, we don't have deletedImageIds persisted across F5.
-            // To ensure deletions survive F5, we can strictly filter `merged` to only include items that exist in `savedImages`! Wait, if Firebase has NEW images from another client, we shouldn't delete them.
-            // But if `savedImages` is recent, maybe it's fine.
             return merged;
           });
         }
@@ -1870,6 +1913,11 @@ export default function App() {
   const unpushedHistoryIds = useRef<Set<string>>(
     getSetFromStorage("unpushed_history_ids"),
   );
+  const currentSessionCaptureIds = useRef<Set<string>>(new Set());
+
+  const registerCurrentSessionCaptureId = (id: string) => {
+    currentSessionCaptureIds.current.add(id);
+  };
 
   const addDeletedImageId = (id: string) => {
     deletedImageIds.current.add(id);
@@ -2246,22 +2294,23 @@ export default function App() {
 
   const handleCapture = useCallback(() => {
     if (webcamRef.current) {
-      const imageBase64 = webcamRef.current.getScreenshot();
-      if (imageBase64) {
-        const newId = Date.now().toString() + Math.random().toString();
-        addUnpushedImageId(newId);
-        setImages((prev) => [
-          ...prev,
-          {
-            id: newId,
-            src: imageBase64,
-            selected: true,
-            status: "pending",
-            examName: gradeExamName,
-            classId: activeClass,
-          },
-        ]);
-      }
+       const imageBase64 = webcamRef.current.getScreenshot();
+       if (imageBase64) {
+         const newId = Date.now().toString() + Math.random().toString();
+         addUnpushedImageId(newId);
+         registerCurrentSessionCaptureId(newId);
+         setImages((prev) => [
+           ...prev,
+           {
+             id: newId,
+             src: imageBase64,
+             selected: true,
+             status: "pending",
+             examName: gradeExamName,
+             classId: activeClass,
+           },
+         ]);
+       }
     }
   }, [webcamRef, gradeExamName, activeClass]);
 
@@ -2287,6 +2336,7 @@ export default function App() {
           const base64 = e.target?.result as string;
           const newId = Date.now().toString() + Math.random().toString();
           addUnpushedImageId(newId);
+          registerCurrentSessionCaptureId(newId);
           setImages((prev) => [
             ...prev,
             {
@@ -2565,6 +2615,7 @@ export default function App() {
       .map((item) => {
         const newId = Date.now().toString() + Math.random().toString();
         addUnpushedImageId(newId);
+        registerCurrentSessionCaptureId(newId);
         return {
           id: newId,
           src: item.imageSrc || item.firebaseImageUrl,
