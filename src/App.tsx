@@ -222,6 +222,48 @@ const stripDataUrls = (val: any): any => {
   return val;
 };
 
+const compressImage = (base64: string, maxWidth = 1200, maxHeight = 1600): Promise<string> => {
+  return new Promise((resolve) => {
+    if (!base64 || !base64.startsWith("data:")) {
+      resolve(base64);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width *= maxHeight / height;
+          height = maxHeight;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      } else {
+        resolve(base64);
+      }
+    };
+    img.onerror = () => {
+      resolve(base64);
+    };
+    img.src = base64;
+  });
+};
+
 export interface ScannedImage {
   id: string;
   src: string;
@@ -479,6 +521,7 @@ export default function App() {
     isLoggingOutRef.current = true;
     // 1. Snapshot state for background sync
     const uid = currentUserId;
+    const backupUserRole = userRole;
     const backupImages = [...images];
     const backupScanHistory = [...scanHistory];
     const backupDeletedImageIds = new Set(deletedImageIds.current);
@@ -594,7 +637,7 @@ export default function App() {
       }
     }
 
-    if (currentGlobalStr !== lastSyncedGlobal) {
+    if (backupUserRole === "ADMIN" && currentGlobalStr !== lastSyncedGlobal) {
       const now = Date.now();
       try {
         localStorage.setItem("last_local_update_time", now.toString());
@@ -1296,6 +1339,7 @@ export default function App() {
 
   useEffect(() => {
     if (!initialFetchDone.current) return;
+    if (userRole !== "ADMIN") return;
 
     // Create a stringified version to check for actual changes instead of references
     const syncObj: any = {
@@ -1370,6 +1414,7 @@ export default function App() {
     examSessions,
     globalOMRConfig,
     globalOMRTemplateImage,
+    userRole,
   ]);
 
   useEffect(() => {
@@ -1583,7 +1628,7 @@ export default function App() {
                   ? ({
                       ...p,
                       firebaseImageUrl: url,
-                      src: url,
+                      src: p.src || url,
                       isUploadingToFirebase: false,
                     } as any)
                   : p,
@@ -2359,8 +2404,9 @@ export default function App() {
     if (files && files.length > 0) {
       Array.from(files).forEach((file: any) => {
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
           const base64 = e.target?.result as string;
+          const compressed = await compressImage(base64);
           const newId = Date.now().toString() + Math.random().toString();
           addUnpushedImageId(newId);
           registerCurrentSessionCaptureId(newId);
@@ -2368,7 +2414,7 @@ export default function App() {
             ...prev,
             {
               id: newId,
-              src: base64,
+              src: compressed,
               selected: true,
               status: "pending",
               examName: gradeExamName,
