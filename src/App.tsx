@@ -510,6 +510,10 @@ export default function App() {
       setCurrentUserId(user.id);
       setSafeStorage("app_user_role", user.role);
       setSafeStorage("app_current_user_id", user.id);
+      try {
+        localStorage.removeItem("last_local_update_time");
+        sessionStorage.removeItem("last_synced_globals");
+      } catch (e) {}
       setActiveTab(user.role === "ADMIN" ? "STEP1_SUBJECT" : "STEP3_SCAN");
     } else {
       setLoginError("Tài khoản/Mật khẩu không đúng.");
@@ -1165,6 +1169,11 @@ export default function App() {
   const initialHistoryFetchDone = useRef(false);
   const initialQueueFetchDone = useRef(false);
   useEffect(() => {
+    try {
+      localStorage.removeItem("last_local_update_time");
+      sessionStorage.removeItem("last_synced_globals");
+    } catch {}
+
     if (firestoreQuotaExceeded) {
       initialFetchDone.current = true;
       return () => {};
@@ -1259,7 +1268,7 @@ export default function App() {
     return () => {
       unsub();
     };
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
     if (firestoreQuotaExceeded || !currentUserId) {
