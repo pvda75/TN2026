@@ -506,6 +506,10 @@ export default function App() {
     );
     if (user) {
       isLoggingOutRef.current = false;
+      isLoadedRef.current = false;
+      initialFetchDone.current = false;
+      initialHistoryFetchDone.current = false;
+      initialQueueFetchDone.current = false;
       setUserRole(user.role);
       setCurrentUserId(user.id);
       setSafeStorage("app_user_role", user.role);
@@ -523,6 +527,9 @@ export default function App() {
   const handleLogout = () => {
     isLoadedRef.current = false;
     isLoggingOutRef.current = true;
+    initialFetchDone.current = false;
+    initialHistoryFetchDone.current = false;
+    initialQueueFetchDone.current = false;
     // 1. Snapshot state for background sync
     const uid = currentUserId;
     const backupUserRole = userRole;
@@ -1854,7 +1861,7 @@ export default function App() {
         if (isMounted && savedImages && Array.isArray(savedImages)) {
           setImages((prev) => {
             // If online and we already have active items from Firestore, trust them as the source of truth
-            if (initialQueueFetchDone.current) {
+            if (initialQueueFetchDone.current && prev.length > 0) {
               return prev.map((p) => {
                 const s = savedImages.find((item) => item.id === p.id);
                 if (s) {
