@@ -429,6 +429,17 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
     return getSafeStorage("app_current_user_id");
   });
+  const [activeQueueUserId, setActiveQueueUserId] = useState<string>(() => {
+    return getSafeStorage("app_current_user_id") || "";
+  });
+
+  useEffect(() => {
+    if (currentUserId) {
+      setActiveQueueUserId(currentUserId);
+    } else {
+      setActiveQueueUserId("");
+    }
+  }, [currentUserId]);
 
   const [appUsers, setAppUsers] = useState<any[]>(() => {
     try {
@@ -595,7 +606,7 @@ export default function App() {
 
     // 3. Background sync
     if (uid && (backupImages.length > 0 || backupDeletedImageIds.size > 0)) {
-      const queueDocId = "scanQueue_1";
+      const queueDocId = "scanQueue_" + (activeQueueUserId || uid);
       const safeImages = backupImages.map((img) => {
         let { isUploadingToFirebase, ...safeImg } = img as any;
         if (safeImg.src && safeImg.src.startsWith("data:")) {
@@ -1524,7 +1535,8 @@ export default function App() {
       initialQueueFetchDone.current = true;
       return () => {};
     }
-    const queueDocId = "scanQueue_1";
+    const finalQueueUserId = activeQueueUserId || currentUserId;
+    const queueDocId = "scanQueue_" + finalQueueUserId;
     const unsubScanQueue = onSnapshot(
       doc(db, "globals", queueDocId),
       (snapshot) => {
@@ -1607,12 +1619,13 @@ export default function App() {
     );
 
     return () => unsubScanQueue();
-  }, [currentUserId, userRole]);
+  }, [currentUserId, userRole, activeQueueUserId]);
 
   // background sync scan queue 'images' to storage and firestore
   useEffect(() => {
     if (!initialFetchDone.current || !initialQueueFetchDone.current) return;
-    const queueDocId = "scanQueue_1";
+    const finalQueueUserId = activeQueueUserId || currentUserId;
+    const queueDocId = "scanQueue_" + finalQueueUserId;
 
     // 1. Upload base64 src to firebaseImageUrl
     const itemsToUpload = images.filter(
@@ -1723,7 +1736,7 @@ export default function App() {
     }, 2000);
 
     return () => clearTimeout(timeout);
-  }, [images, currentUserId, userRole]);
+  }, [images, currentUserId, userRole, activeQueueUserId]);
 
   // background sync images to storage
   useEffect(() => {
@@ -1860,6 +1873,9 @@ export default function App() {
           await localforage.getItem<ScannedImage[]>(`autograde_images_${currentUserId}`);
         if (isMounted && savedImages && Array.isArray(savedImages)) {
           setImages((prev) => {
+            if (activeQueueUserId && activeQueueUserId !== currentUserId) {
+              return prev;
+            }
             // If online and we already have active items from Firestore, trust them as the source of truth
             if (initialQueueFetchDone.current && prev.length > 0) {
               return prev.map((p) => {
@@ -1972,12 +1988,13 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoadedRef.current || isLoggingOutRef.current || !currentUserId) return;
+    if (activeQueueUserId && activeQueueUserId !== currentUserId) return;
     try {
       localforage.setItem(`autograde_images_${currentUserId}`, images);
     } catch (err) {
       console.error("Failed to save images:", err);
     }
-  }, [images, currentUserId]);
+  }, [images, currentUserId, activeQueueUserId]);
 
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -4518,6 +4535,28 @@ export default function App() {
                         </>
                       )}
                     </div>
+
+                    {userRole === "ADMIN" && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-indigo-600 w-auto text-left whitespace-nowrap">
+                          Người quét:
+                        </span>
+                        <select
+                          className="border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-red-600"
+                          value={activeQueueUserId}
+                          onChange={(e) => setActiveQueueUserId(e.target.value)}
+                        >
+                          <option value={currentUserId || ""}>Bản thân (Tôi)</option>
+                          {appUsers
+                            .filter((u) => u.id !== currentUserId)
+                            .map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.username} ({u.role === "ADMIN" ? "Admin" : "User"})
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   {!isUserConstrained && showClassManager && (
