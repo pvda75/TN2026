@@ -588,7 +588,7 @@ export default function App() {
 
     // 3. Background sync
     if (uid && (backupImages.length > 0 || backupDeletedImageIds.size > 0)) {
-      const queueDocId = "scanQueue_" + uid;
+      const queueDocId = "scanQueue_1";
       const safeImages = backupImages.map((img) => {
         let { isUploadingToFirebase, ...safeImg } = img as any;
         if (safeImg.src && safeImg.src.startsWith("data:")) {
@@ -1517,7 +1517,7 @@ export default function App() {
       initialQueueFetchDone.current = true;
       return () => {};
     }
-    const queueDocId = "scanQueue_" + currentUserId;
+    const queueDocId = "scanQueue_1";
     const unsubScanQueue = onSnapshot(
       doc(db, "globals", queueDocId),
       (snapshot) => {
@@ -1605,7 +1605,7 @@ export default function App() {
   // background sync scan queue 'images' to storage and firestore
   useEffect(() => {
     if (!initialFetchDone.current || !initialQueueFetchDone.current) return;
-    const queueDocId = "scanQueue_" + (currentUserId || "unknown");
+    const queueDocId = "scanQueue_1";
 
     // 1. Upload base64 src to firebaseImageUrl
     const itemsToUpload = images.filter(
