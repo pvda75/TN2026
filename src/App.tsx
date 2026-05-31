@@ -1731,7 +1731,7 @@ export default function App() {
     );
     if (itemsToUpload.length > 0) {
       // Synchronously mark them all immediately to prevent subsequent react updates from spawning new upload worker runs
-      itemsToUpload.forEach((item) => uploadingRef.current.add(item.id));
+      addToUploading(itemsToUpload.map((item) => item.id));
 
       const uploadWorker = async (item: any) => {
         try {
@@ -1755,7 +1755,7 @@ export default function App() {
         } catch (e) {
           console.error("Queue upload failed for " + item.id, e);
         } finally {
-          uploadingRef.current.delete(item.id);
+          removeFromUploading(item.id);
         }
       };
 
@@ -1853,7 +1853,7 @@ export default function App() {
     if (itemsToUpload.length === 0) return;
 
     // Synchronously track them immediately in uploadingRef to prevent subsequent react updates from scheduling duplicate uploads
-    itemsToUpload.forEach((item) => uploadingRef.current.add(item.id));
+    addToUploading(itemsToUpload.map((item) => item.id));
 
     const uploadWorker = async (item: any) => {
       try {
@@ -1896,7 +1896,7 @@ export default function App() {
       } catch (e) {
         console.error("Storage upload failed for " + item.id, e);
       } finally {
-        uploadingRef.current.delete(item.id);
+        removeFromUploading(item.id);
       }
     };
 
@@ -2157,6 +2157,18 @@ export default function App() {
   );
   const currentSessionCaptureIds = useRef<Set<string>>(new Set());
   const uploadingRef = useRef<Set<string>>(new Set());
+  const [activeUploadingIds, setActiveUploadingIds] = useState<string[]>([]);
+  const [imageLoadingStates, setImageLoadingStates] = useState<Record<string, boolean>>({});
+
+  const addToUploading = (ids: string[]) => {
+    ids.forEach((id) => uploadingRef.current.add(id));
+    setActiveUploadingIds(Array.from(uploadingRef.current));
+  };
+
+  const removeFromUploading = (id: string) => {
+    uploadingRef.current.delete(id);
+    setActiveUploadingIds(Array.from(uploadingRef.current));
+  };
 
   const registerCurrentSessionCaptureId = (id: string) => {
     currentSessionCaptureIds.current.add(id);
@@ -4715,7 +4727,7 @@ export default function App() {
                       )}
                     </div>
 
-                    {userRole === "ADMIN" && (
+                    {userHasGrade && (
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-indigo-600 w-auto text-left whitespace-nowrap">
                           Người quét:
@@ -5184,11 +5196,21 @@ export default function App() {
                                 }}
                               >
                                 {img.src ? (
-                                  <img
-                                    src={img.src}
-                                    referrerPolicy="no-referrer"
-                                    className="absolute inset-0 w-full h-full object-cover"
-                                  />
+                                  <>
+                                    <img
+                                      src={img.src}
+                                      referrerPolicy="no-referrer"
+                                      className="absolute inset-0 w-full h-full object-cover"
+                                    />
+                                    {activeUploadingIds.includes(img.id) && (
+                                      <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-1 text-center z-10 transition-all duration-200">
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mb-1"></div>
+                                        <span className="text-[9px] text-white font-medium bg-indigo-600/95 px-1.5 py-0.5 rounded shadow-sm">
+                                          Đang gửi lên Cloud...
+                                        </span>
+                                      </div>
+                                    )}
+                                  </>
                                 ) : (
                                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 p-1 text-center">
                                     <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2 mt-2"></div>
@@ -6067,7 +6089,24 @@ export default function App() {
                             referrerPolicy="no-referrer"
                             alt="Scanned form"
                             className="w-full h-auto object-contain block relative z-0"
+                            onLoad={() => {
+                              setImageLoadingStates(prev => ({ ...prev, [selectedResult.id]: false }));
+                            }}
+                            onError={() => {
+                              setImageLoadingStates(prev => ({ ...prev, [selectedResult.id]: false }));
+                            }}
                           />
+                          {imageLoadingStates[selectedResult.id] !== false && !selectedResult.imageSrc && selectedResult.firebaseImageUrl && (
+                            <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center p-8 text-center z-10 transition-all duration-200">
+                              <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+                              <p className="text-xs text-slate-700 font-bold mb-1 col-span-2">
+                                Đang tải ảnh hiệu chỉnh từ Cloud...
+                              </p>
+                              <p className="text-[10px] text-slate-400 max-w-xs leading-normal">
+                                Vui lòng chờ trong giây lát để tải dữ liệu ảnh chất lượng cao.
+                              </p>
+                            </div>
+                          )}
                           {selectedResult.rawAnswers && (
                             <div className="absolute inset-0 pointer-events-none z-10 w-full h-full">
                               {/* Render Part 1 Boxes */}
