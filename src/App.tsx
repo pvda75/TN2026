@@ -1345,12 +1345,15 @@ export default function App() {
               JSON.stringify(metadataOnly),
             );
 
-            // Preserve local high-res image src if present locally
+            // Preserve local high-res image src and firebaseImageUrl if present locally
             const localItem = prevHistory.find((p) => p.id === data.id);
             if (localItem) {
               if (localItem.imageSrc && !data.imageSrc) {
                 data.imageSrc = localItem.imageSrc;
                 data.originalImageSrc = localItem.originalImageSrc;
+              }
+              if (localItem.firebaseImageUrl && !data.firebaseImageUrl) {
+                data.firebaseImageUrl = localItem.firebaseImageUrl;
               }
             }
             nextHistory.push(data);
@@ -1587,23 +1590,25 @@ export default function App() {
                   }
                   return {
                     ...rmt,
-                    src: rmt.src || rmt.firebaseImageUrl || local.src,
+                    firebaseImageUrl: rmt.firebaseImageUrl || local.firebaseImageUrl || "",
+                    src: rmt.src || rmt.firebaseImageUrl || local.firebaseImageUrl || local.src || "",
                     result:
-                      local.result && rmt.result
+                      local.result || rmt.result
                         ? {
-                            ...rmt.result,
+                            ...(rmt.result || {}),
+                            ...(local.result || {}),
                             imageSrc:
-                              local.result.imageSrc || rmt.result.imageSrc,
+                              local.result?.imageSrc || rmt.result?.imageSrc || local.firebaseImageUrl || rmt.firebaseImageUrl || "",
                             originalImageSrc:
-                              local.result.originalImageSrc ||
-                              rmt.result.originalImageSrc,
+                              local.result?.originalImageSrc ||
+                              rmt.result?.originalImageSrc || "",
                           }
                         : rmt.result,
                   };
                 }
                 return {
                   ...rmt,
-                  src: rmt.src || rmt.firebaseImageUrl,
+                  src: rmt.src || rmt.firebaseImageUrl || "",
                 };
               });
             const localOnly = prev.filter(
