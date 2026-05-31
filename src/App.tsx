@@ -1740,53 +1740,77 @@ export default function App() {
 
   // background sync images to storage
   useEffect(() => {
+    if (!currentUserId) return;
+
     const uploadImages = async () => {
-      // Find items that have imageSrc (local base64 limit check implicitly by seeing if it has data)
-      // but no firebaseImageUrl, and are not currently uploading
+      // Find items that have imageSrc but no firebaseImageUrl, and are not currently uploading
       const itemsToUpload = scanHistory.filter(
         (item: any) =>
-          item.imageSrc && !item.firebaseImageUrl && !item.isUploading,
+          item.imageSrc &&
+          !item.firebaseImageUrl &&
+          !uploadingRef.current.has(item.id),
       );
       if (itemsToUpload.length === 0) return;
 
-      const newHistory = [...scanHistory];
-      for (const item of itemsToUpload) {
-        const idx = newHistory.findIndex((x) => x.id === item.id);
-        if (idx !== -1) {
-          newHistory[idx] = { ...newHistory[idx], isUploading: true };
-        }
-      }
-      setScanHistory(newHistory);
+      itemsToUpload.forEach((item) => {
+        uploadingRef.current.add(item.id);
 
-      for (const item of itemsToUpload) {
-        try {
-          const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-          const url = await uploadBase64ToStorage(path, item.imageSrc);
-          addUnpushedHistoryId(item.id);
-          setScanHistory((prev) => {
-            return prev.map((p) =>
-              p.id === item.id
-                ? { ...p, firebaseImageUrl: url, isUploading: false }
-                : p,
+        const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
+        uploadBase64ToStorage(path, item.imageSrc)
+          .then((url) => {
+            // Update local state history
+            setScanHistory((prev) =>
+              prev.map((p) =>
+                p.id === item.id ? { ...p, firebaseImageUrl: url } : p,
+              ),
             );
+
+            // Also update selectedResult if it is the currently viewed item so it renders immediately
+            setSelectedResult((prev: any) => {
+              if (prev && prev.id === item.id) {
+                return { ...prev, firebaseImageUrl: url };
+              }
+              return prev;
+            });
+
+            // Immediately persist to Firestore Doc directly bypassing general backups
+            const docRef = doc(db, "scanHistory", item.id);
+            const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } =
+              item as any;
+            metadataOnly.firebaseImageUrl = url; // Set the URL explicitly
+
+            const cleanMetadata = stripDataUrls(JSON.parse(JSON.stringify(metadataOnly)));
+            if (item.timestamp) {
+              cleanMetadata.timestamp = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp);
+            }
+
+            setDoc(docRef, cleanMetadata, { merge: true })
+              .then(() => {
+                unpushedHistoryIds.current.delete(item.id);
+                localStorage.setItem(
+                  "unpushed_history_ids",
+                  JSON.stringify(Array.from(unpushedHistoryIds.current)),
+                );
+              })
+              .catch((err) => {
+                console.error("Direct document update of firebaseImageUrl failed:", err);
+              });
+          })
+          .catch((e) => {
+            console.error("Storage upload failed for " + item.id, e);
+          })
+          .finally(() => {
+            uploadingRef.current.delete(item.id);
           });
-        } catch (e) {
-          console.error("Storage upload failed", e);
-          setScanHistory((prev) => {
-            return prev.map((p) =>
-              p.id === item.id ? { ...p, isUploading: false } : p,
-            );
-          });
-        }
-      }
+      });
     };
 
-    // Don't overwhelm the thread with uploads constantly, debounce slightly
+    // Don't overwhelm the thread but run quickly on changes
     const timeout = setTimeout(() => {
       uploadImages();
-    }, 5000);
+    }, 1000);
     return () => clearTimeout(timeout);
-  }, [scanHistory]);
+  }, [scanHistory, currentUserId]);
   // --------------------------------
 
   // Load initial data from localforage
@@ -2019,6 +2043,7 @@ export default function App() {
     getSetFromStorage("unpushed_history_ids"),
   );
   const currentSessionCaptureIds = useRef<Set<string>>(new Set());
+  const uploadingRef = useRef<Set<string>>(new Set());
 
   const registerCurrentSessionCaptureId = (id: string) => {
     currentSessionCaptureIds.current.add(id);
