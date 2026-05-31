@@ -1747,7 +1747,7 @@ export default function App() {
             setQuotaExceeded();
           }
         });
-    }, 2000);
+    }, 400);
 
     return () => clearTimeout(timeout);
   }, [images, currentUserId, userRole, activeQueueUserId]);
