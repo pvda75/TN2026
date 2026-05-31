@@ -252,7 +252,7 @@ const compressImage = (base64: string, maxWidth = 1000, maxHeight = 1400): Promi
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.75));
+        resolve(canvas.toDataURL("image/jpeg", 0.70));
       } else {
         resolve(base64);
       }
@@ -1648,56 +1648,47 @@ export default function App() {
     const finalQueueUserId = activeQueueUserId || currentUserId;
     const queueDocId = "scanQueue_" + finalQueueUserId;
 
-    // 1. Upload base64 src to firebaseImageUrl (sequentially to avoid choking bandwidth)
+    // 1. Upload base64 src to firebaseImageUrl (parallelized up to 3 for maximum speed, locked via uploadingRef)
     const itemsToUpload = images.filter(
       (img) =>
         img.src &&
         img.src.startsWith("data:") &&
         !img.firebaseImageUrl &&
-        !(img as any).isUploadingToFirebase,
+        !uploadingRef.current.has(img.id),
     );
     if (itemsToUpload.length > 0) {
-      const newImages = [...images];
-      for (const item of itemsToUpload) {
-        const idx = newImages.findIndex((x) => x.id === item.id);
-        if (idx !== -1) {
-          newImages[idx] = {
-            ...newImages[idx],
-            isUploadingToFirebase: true,
-          } as any;
-        }
-      }
-      setImages(newImages);
+      // Synchronously mark them all immediately to prevent subsequent react updates from spawning new upload worker runs
+      itemsToUpload.forEach((item) => uploadingRef.current.add(item.id));
 
-      const runSequentialUploads = async () => {
-        for (const item of itemsToUpload) {
-          try {
-            const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src);
-            setImages((prev) =>
-              prev.map((p) =>
-                p.id === item.id
-                  ? ({
-                      ...p,
-                      firebaseImageUrl: url,
-                      src: p.src || url,
-                      isUploadingToFirebase: false,
-                    } as any)
-                  : p,
-              ),
-            );
-          } catch (e) {
-            console.error("Queue upload failed for " + item.id, e);
-            setImages((prev) =>
-              prev.map((p) =>
-                p.id === item.id
-                  ? ({ ...p, isUploadingToFirebase: false } as any)
-                  : p,
-              ),
-            );
-          }
+      const uploadWorker = async (item: any) => {
+        try {
+          const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src);
+          setImages((prev) =>
+            prev.map((p) =>
+              p.id === item.id
+                ? ({
+                    ...p,
+                    firebaseImageUrl: url,
+                    src: p.src || url,
+                  } as any)
+                : p,
+            ),
+          );
+        } catch (e) {
+          console.error("Queue upload failed for " + item.id, e);
+        } finally {
+          uploadingRef.current.delete(item.id);
         }
       };
-      runSequentialUploads();
+
+      const runParallelQueueUploads = async () => {
+        const CONCURRENCY = 3;
+        for (let i = 0; i < itemsToUpload.length; i += CONCURRENCY) {
+          const chunk = itemsToUpload.slice(i, i + CONCURRENCY);
+          await Promise.all(chunk.map((item) => uploadWorker(item)));
+        }
+      };
+      runParallelQueueUploads();
     }
 
     // 2. Sync metadata to Firestore
@@ -1765,68 +1756,73 @@ export default function App() {
   useEffect(() => {
     if (!currentUserId) return;
 
-    const uploadImages = async () => {
-      // Find items that have imageSrc but no firebaseImageUrl, and are not currently uploading
-      const itemsToUpload = scanHistory.filter(
-        (item: any) =>
-          item.imageSrc &&
-          !item.firebaseImageUrl &&
-          !uploadingRef.current.has(item.id),
-      );
-      if (itemsToUpload.length === 0) return;
+    const itemsToUpload = scanHistory.filter(
+      (item: any) =>
+        item.imageSrc &&
+        !item.firebaseImageUrl &&
+        !uploadingRef.current.has(item.id),
+    );
+    if (itemsToUpload.length === 0) return;
 
-      // Upload sequentially to preserve network bandwidth and upload very fast
-      for (const item of itemsToUpload) {
-        uploadingRef.current.add(item.id);
+    // Synchronously track them immediately in uploadingRef to prevent subsequent react updates from scheduling duplicate uploads
+    itemsToUpload.forEach((item) => uploadingRef.current.add(item.id));
 
-        try {
-          const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-          const url = await uploadBase64ToStorage(path, item.imageSrc);
+    const uploadWorker = async (item: any) => {
+      try {
+        const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
+        const url = await uploadBase64ToStorage(path, item.imageSrc);
 
-          // Update local state history
-          setScanHistory((prev) =>
-            prev.map((p) =>
-              p.id === item.id ? { ...p, firebaseImageUrl: url } : p,
-            ),
-          );
+        // Update local state history
+        setScanHistory((prev) =>
+          prev.map((p) =>
+            p.id === item.id ? { ...p, firebaseImageUrl: url } : p,
+          ),
+        );
 
-          // Also update selectedResult if it is the currently viewed item so it renders immediately
-          setSelectedResult((prev: any) => {
-            if (prev && prev.id === item.id) {
-              return { ...prev, firebaseImageUrl: url };
-            }
-            return prev;
-          });
-
-          // Immediately persist to Firestore Doc directly bypassing general backups
-          const docRef = doc(db, "scanHistory", item.id);
-          const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } =
-            item as any;
-          metadataOnly.firebaseImageUrl = url; // Set the URL explicitly
-
-          const cleanMetadata = stripDataUrls(JSON.parse(JSON.stringify(metadataOnly)));
-          if (item.timestamp) {
-            cleanMetadata.timestamp = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp);
+        // Also update selectedResult if it is the currently viewed item so it renders immediately
+        setSelectedResult((prev: any) => {
+          if (prev && prev.id === item.id) {
+            return { ...prev, firebaseImageUrl: url };
           }
+          return prev;
+        });
 
-          await setDoc(docRef, cleanMetadata, { merge: true });
+        // Immediately persist to Firestore Doc directly bypassing general backups
+        const docRef = doc(db, "scanHistory", item.id);
+        const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } =
+          item as any;
+        metadataOnly.firebaseImageUrl = url; // Set the URL explicitly
 
-          unpushedHistoryIds.current.delete(item.id);
-          localStorage.setItem(
-            "unpushed_history_ids",
-            JSON.stringify(Array.from(unpushedHistoryIds.current)),
-          );
-        } catch (e) {
-          console.error("Storage upload failed for " + item.id, e);
-        } finally {
-          uploadingRef.current.delete(item.id);
+        const cleanMetadata = stripDataUrls(JSON.parse(JSON.stringify(metadataOnly)));
+        if (item.timestamp) {
+          cleanMetadata.timestamp = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp);
         }
+
+        await setDoc(docRef, cleanMetadata, { merge: true });
+
+        unpushedHistoryIds.current.delete(item.id);
+        localStorage.setItem(
+          "unpushed_history_ids",
+          JSON.stringify(Array.from(unpushedHistoryIds.current)),
+        );
+      } catch (e) {
+        console.error("Storage upload failed for " + item.id, e);
+      } finally {
+        uploadingRef.current.delete(item.id);
+      }
+    };
+
+    const runParallelUploads = async () => {
+      const CONCURRENCY = 3;
+      for (let i = 0; i < itemsToUpload.length; i += CONCURRENCY) {
+        const chunk = itemsToUpload.slice(i, i + CONCURRENCY);
+        await Promise.all(chunk.map((item) => uploadWorker(item)));
       }
     };
 
     // Don't overwhelm the thread but run quickly on changes
     const timeout = setTimeout(() => {
-      uploadImages();
+      runParallelUploads();
     }, 1000);
     return () => clearTimeout(timeout);
   }, [scanHistory, currentUserId]);
@@ -2840,7 +2836,7 @@ export default function App() {
             ctx.fillStyle = "#FFFFFF";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", 0.75));
+            resolve(canvas.toDataURL("image/jpeg", 0.70));
           } else {
             resolve(sourceImageToProcess);
           }
@@ -3671,7 +3667,7 @@ export default function App() {
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               ctx.drawImage(img, 0, 0, width, height);
               // Cải thiện chất lượng ảnh để AI đọc chính xác hơn (đã tối ưu hoá dung lượng)
-              resolve(canvas.toDataURL("image/jpeg", 0.75));
+              resolve(canvas.toDataURL("image/jpeg", 0.70));
             } else {
               resolve(image.src);
             }

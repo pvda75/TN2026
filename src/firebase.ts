@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, disableNetwork, setLogLevel } from 'firebase/firestore';
-import { getStorage, ref, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
+import { getStorage, ref, uploadString, getDownloadURL, deleteObject, UploadMetadata } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -19,9 +19,14 @@ export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const uploadBase64ToStorage = async (path: string, base64: string): Promise<string> => {
+export const uploadBase64ToStorage = async (path: string, base64: string, metadata?: UploadMetadata): Promise<string> => {
   const fileRef = ref(storage, path);
-  await uploadString(fileRef, base64, 'data_url');
+  const finalMetadata: UploadMetadata = {
+    cacheControl: "public, max-age=31536000",
+    contentType: "image/jpeg",
+    ...metadata,
+  };
+  await uploadString(fileRef, base64, 'data_url', finalMetadata);
   return await getDownloadURL(fileRef);
 };
 
