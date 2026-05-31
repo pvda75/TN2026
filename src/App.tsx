@@ -1201,6 +1201,22 @@ export default function App() {
   const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([]);
   const [imageZoomLevel, setImageZoomLevel] = useState<number>(0.75);
 
+  useEffect(() => {
+    if (!selectedResult) return;
+    const latest = scanHistory.find((item) => item.id === selectedResult.id);
+    if (latest) {
+      if (
+        latest.firebaseImageUrl !== selectedResult.firebaseImageUrl ||
+        latest.imageSrc !== selectedResult.imageSrc ||
+        latest.studentId !== selectedResult.studentId ||
+        latest.examCode !== selectedResult.examCode ||
+        JSON.stringify(latest.result) !== JSON.stringify(selectedResult.result)
+      ) {
+        setSelectedResult(latest);
+      }
+    }
+  }, [scanHistory, selectedResult?.id]);
+
   const isLoadedRef = useRef(false);
   const isLoggingOutRef = useRef(false);
   // --- FIREBASE SYNC: Globals ---
@@ -1647,6 +1663,58 @@ export default function App() {
     return () => unsubScanQueue();
   }, [currentUserId, userRole, activeQueueUserId]);
 
+  const syncQueueToFirestore = useCallback((currentImages: any[], queueUserId: string) => {
+    if (firestoreQuotaExceeded) return;
+    const queueDocId = "scanQueue_" + queueUserId;
+
+    const safeImages = currentImages.map((img) => {
+      let { isUploadingToFirebase, ...safeImg } = img as any;
+      if (safeImg.src && safeImg.src.startsWith("data:")) {
+        safeImg.src = ""; // Do not transmit large base64 strings to Firestore
+      }
+      if (!safeImg.result) return safeImg;
+      const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
+      return { ...safeImg, result: safeResult };
+    });
+
+    const cleanSafeImages = stripDataUrls(JSON.parse(JSON.stringify(safeImages)));
+    const safeImagesStr = JSON.stringify(cleanSafeImages);
+    const currentStr = JSON.stringify(currentImages);
+
+    const snapshotOfUnpushed = new Set(currentImages.map((i: any) => i.id));
+    const snapshotOfDeleted = new Set(deletedImageIds.current);
+
+    setDoc(
+      doc(db, "globals", queueDocId),
+      { images: cleanSafeImages },
+      { merge: true },
+    )
+      .then(() => {
+        setSafeSessionStorage("local_last_synced_" + queueDocId, currentStr); // local loop prevention
+        setSafeSessionStorage("last_synced_" + queueDocId, safeImagesStr); // snapshot loop prevention
+
+        // Remove tracking since sync succeeded
+        snapshotOfUnpushed.forEach((id) =>
+          unpushedImageIds.current.delete(id),
+        );
+        snapshotOfDeleted.forEach((id) => deletedImageIds.current.delete(id));
+        localStorage.setItem(
+          "unpushed_image_ids",
+          JSON.stringify(Array.from(unpushedImageIds.current)),
+        );
+        localStorage.setItem(
+          "deleted_image_ids",
+          JSON.stringify(Array.from(deletedImageIds.current)),
+        );
+      })
+      .catch((e) => {
+        console.error("syncQueueToFirestore error", e);
+        if (isQuotaError(e)) {
+          setQuotaExceeded();
+        }
+      });
+  }, [firestoreQuotaExceeded]);
+
   // background sync scan queue 'images' to storage and firestore
   useEffect(() => {
     if (!initialFetchDone.current || !initialQueueFetchDone.current) return;
@@ -1668,8 +1736,9 @@ export default function App() {
       const uploadWorker = async (item: any) => {
         try {
           const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src);
-          setImages((prev) =>
-            prev.map((p) =>
+          let updatedImages: any[] = [];
+          setImages((prev) => {
+            updatedImages = prev.map((p) =>
               p.id === item.id
                 ? ({
                     ...p,
@@ -1677,8 +1746,12 @@ export default function App() {
                     src: p.src || url,
                   } as any)
                 : p,
-            )
-          );
+            );
+            return updatedImages;
+          });
+          if (updatedImages.length > 0) {
+            syncQueueToFirestore(updatedImages, finalQueueUserId);
+          }
         } catch (e) {
           console.error("Queue upload failed for " + item.id, e);
         } finally {
@@ -5113,6 +5186,7 @@ export default function App() {
                                 {img.src ? (
                                   <img
                                     src={img.src}
+                                    referrerPolicy="no-referrer"
                                     className="absolute inset-0 w-full h-full object-cover"
                                   />
                                 ) : (
@@ -5876,7 +5950,7 @@ export default function App() {
                                 `<p>Ngày chấm: ${dateStr}</p>`,
                               );
                               win.document.write(
-                                `<img src="${imgSrc}" alt="Scanned form" />`,
+                                `<img src="${imgSrc}" alt="Scanned form" referrerPolicy="no-referrer" />`,
                               );
                               win.document.write("</body></html>");
                               win.document.close();
@@ -5990,6 +6064,7 @@ export default function App() {
                               selectedResult.imageSrc ||
                               selectedResult.firebaseImageUrl
                             }
+                            referrerPolicy="no-referrer"
                             alt="Scanned form"
                             className="w-full h-auto object-contain block relative z-0"
                           />
