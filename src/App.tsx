@@ -2506,31 +2506,57 @@ export default function App() {
     }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      Array.from(files).forEach((file: any) => {
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const base64 = e.target?.result as string;
-          const compressed = await compressImage(base64);
-          const newId = Date.now().toString() + Math.random().toString();
-          addUnpushedImageId(newId);
-          registerCurrentSessionCaptureId(newId);
-          setImages((prev) => [
-            ...prev,
-            {
-              id: newId,
-              src: compressed,
-              selected: true,
-              status: "pending",
-              examName: gradeExamName,
-              classId: activeClass,
-            },
-          ]);
-        };
-        reader.readAsDataURL(file);
-      });
+      setGlobalProcessing(true);
+      const fileList = Array.from(files);
+      const processedItems: any[] = [];
+
+      // Process in small batches of 3 to optimize main thread CPU usage and memory
+      const limit = 3;
+      for (let i = 0; i < fileList.length; i += limit) {
+        const chunk = fileList.slice(i, i + limit);
+        await Promise.all(
+          chunk.map((file: any) => {
+            return new Promise<void>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = async (e) => {
+                try {
+                  const base64 = e.target?.result as string;
+                  const compressed = await compressImage(base64);
+                  const newId = Date.now().toString() + Math.random().toString();
+                  processedItems.push({
+                    id: newId,
+                    src: compressed,
+                    selected: true,
+                    status: "pending",
+                    examName: gradeExamName,
+                    classId: activeClass,
+                  });
+                } catch (err) {
+                  console.error("Compression failed for file: ", err);
+                } finally {
+                  resolve();
+                }
+              };
+              reader.onerror = () => resolve();
+              reader.readAsDataURL(file);
+            });
+          })
+        );
+      }
+
+      if (processedItems.length > 0) {
+        // Safe synchronous updates
+        processedItems.forEach((item) => {
+          addUnpushedImageId(item.id);
+          registerCurrentSessionCaptureId(item.id);
+        });
+        // Batch set state once to prevent multiple expensive re-renders and worker runs
+        setImages((prev) => [...prev, ...processedItems]);
+      }
+      setGlobalProcessing(false);
     }
     // reset input so same files can be chosen again
     if (fileInputRef.current) fileInputRef.current.value = "";
