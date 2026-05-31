@@ -222,7 +222,7 @@ const stripDataUrls = (val: any): any => {
   return val;
 };
 
-const compressImage = (base64: string, maxWidth = 1000, maxHeight = 1400): Promise<string> => {
+const compressImage = (base64: string, maxWidth = 768, maxHeight = 1024): Promise<string> => {
   return new Promise((resolve) => {
     if (!base64 || !base64.startsWith("data:")) {
       resolve(base64);
@@ -252,7 +252,7 @@ const compressImage = (base64: string, maxWidth = 1000, maxHeight = 1400): Promi
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.70));
+        resolve(canvas.toDataURL("image/jpeg", 0.60));
       } else {
         resolve(base64);
       }
@@ -1663,8 +1663,9 @@ export default function App() {
       const uploadWorker = async (item: any) => {
         try {
           const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src);
-          setImages((prev) =>
-            prev.map((p) =>
+          let latestImgs: any[] = [];
+          setImages((prev) => {
+            latestImgs = prev.map((p) =>
               p.id === item.id
                 ? ({
                     ...p,
@@ -1672,8 +1673,35 @@ export default function App() {
                     src: p.src || url,
                   } as any)
                 : p,
-            ),
-          );
+            );
+            return latestImgs;
+          });
+
+          if (latestImgs && latestImgs.length > 0) {
+            const safeImages = latestImgs.map((img) => {
+              let { isUploadingToFirebase, ...safeImg } = img as any;
+              if (safeImg.src && safeImg.src.startsWith("data:")) {
+                safeImg.src = ""; // Do not transmit large base64 strings to Firestore
+              }
+              if (!safeImg.result) return safeImg;
+              const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
+              return { ...safeImg, result: safeResult };
+            });
+
+            const cleanSafeImages = stripDataUrls(safeImages);
+            const safeImagesStr = JSON.stringify(cleanSafeImages);
+            const currentStr = JSON.stringify(latestImgs);
+
+            if (!firestoreQuotaExceeded) {
+              await setDoc(
+                doc(db, "globals", queueDocId),
+                { images: cleanSafeImages },
+                { merge: true },
+              );
+              setSafeSessionStorage("local_last_synced_" + queueDocId, currentStr); // local loop prevention
+              setSafeSessionStorage("last_synced_" + queueDocId, safeImagesStr); // snapshot loop prevention
+            }
+          }
         } catch (e) {
           console.error("Queue upload failed for " + item.id, e);
         } finally {
@@ -2813,8 +2841,8 @@ export default function App() {
         img.crossOrigin = "anonymous";
         img.onload = () => {
           const canvas = document.createElement("canvas");
-          const MAX_WIDTH = 1000;
-          const MAX_HEIGHT = 1400;
+          const MAX_WIDTH = 768;
+          const MAX_HEIGHT = 1024;
           let width = img.width;
           let height = img.height;
 
@@ -2836,7 +2864,7 @@ export default function App() {
             ctx.fillStyle = "#FFFFFF";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", 0.70));
+            resolve(canvas.toDataURL("image/jpeg", 0.60));
           } else {
             resolve(sourceImageToProcess);
           }
@@ -3643,8 +3671,8 @@ export default function App() {
           img.crossOrigin = "anonymous";
           img.onload = () => {
             const canvas = document.createElement("canvas");
-            const MAX_WIDTH = 1000;
-            const MAX_HEIGHT = 1400;
+            const MAX_WIDTH = 768;
+            const MAX_HEIGHT = 1024;
             let width = img.width;
             let height = img.height;
 
@@ -3667,7 +3695,7 @@ export default function App() {
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               ctx.drawImage(img, 0, 0, width, height);
               // Cải thiện chất lượng ảnh để AI đọc chính xác hơn (đã tối ưu hoá dung lượng)
-              resolve(canvas.toDataURL("image/jpeg", 0.70));
+              resolve(canvas.toDataURL("image/jpeg", 0.60));
             } else {
               resolve(image.src);
             }
