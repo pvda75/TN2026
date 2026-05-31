@@ -1663,9 +1663,8 @@ export default function App() {
       const uploadWorker = async (item: any) => {
         try {
           const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src);
-          let latestImgs: any[] = [];
-          setImages((prev) => {
-            latestImgs = prev.map((p) =>
+          setImages((prev) =>
+            prev.map((p) =>
               p.id === item.id
                 ? ({
                     ...p,
@@ -1673,35 +1672,8 @@ export default function App() {
                     src: p.src || url,
                   } as any)
                 : p,
-            );
-            return latestImgs;
-          });
-
-          if (latestImgs && latestImgs.length > 0) {
-            const safeImages = latestImgs.map((img) => {
-              let { isUploadingToFirebase, ...safeImg } = img as any;
-              if (safeImg.src && safeImg.src.startsWith("data:")) {
-                safeImg.src = ""; // Do not transmit large base64 strings to Firestore
-              }
-              if (!safeImg.result) return safeImg;
-              const { imageSrc, originalImageSrc, ...safeResult } = safeImg.result;
-              return { ...safeImg, result: safeResult };
-            });
-
-            const cleanSafeImages = stripDataUrls(JSON.parse(JSON.stringify(safeImages)));
-            const safeImagesStr = JSON.stringify(cleanSafeImages);
-            const currentStr = JSON.stringify(latestImgs);
-
-            if (!firestoreQuotaExceeded) {
-              await setDoc(
-                doc(db, "globals", queueDocId),
-                { images: cleanSafeImages },
-                { merge: true },
-              );
-              setSafeSessionStorage("local_last_synced_" + queueDocId, currentStr); // local loop prevention
-              setSafeSessionStorage("last_synced_" + queueDocId, safeImagesStr); // snapshot loop prevention
-            }
-          }
+            )
+          );
         } catch (e) {
           console.error("Queue upload failed for " + item.id, e);
         } finally {
@@ -1710,11 +1682,21 @@ export default function App() {
       };
 
       const runParallelQueueUploads = async () => {
-        const CONCURRENCY = 3;
-        for (let i = 0; i < itemsToUpload.length; i += CONCURRENCY) {
-          const chunk = itemsToUpload.slice(i, i + CONCURRENCY);
-          await Promise.all(chunk.map((item) => uploadWorker(item)));
+        const pool: Promise<void>[] = [];
+        const maxConcurrency = 5;
+        for (const item of itemsToUpload) {
+          const promise = uploadWorker(item).then(() => {
+            const idx = pool.indexOf(promise);
+            if (idx !== -1) {
+              pool.splice(idx, 1);
+            }
+          });
+          pool.push(promise);
+          if (pool.length >= maxConcurrency) {
+            await Promise.race(pool);
+          }
         }
+        await Promise.all(pool);
       };
       runParallelQueueUploads();
     }
@@ -1841,11 +1823,21 @@ export default function App() {
     };
 
     const runParallelUploads = async () => {
-      const CONCURRENCY = 3;
-      for (let i = 0; i < itemsToUpload.length; i += CONCURRENCY) {
-        const chunk = itemsToUpload.slice(i, i + CONCURRENCY);
-        await Promise.all(chunk.map((item) => uploadWorker(item)));
+      const pool: Promise<void>[] = [];
+      const maxConcurrency = 5;
+      for (const item of itemsToUpload) {
+        const promise = uploadWorker(item).then(() => {
+          const idx = pool.indexOf(promise);
+          if (idx !== -1) {
+            pool.splice(idx, 1);
+          }
+        });
+        pool.push(promise);
+        if (pool.length >= maxConcurrency) {
+          await Promise.race(pool);
+        }
       }
+      await Promise.all(pool);
     };
 
     // Don't overwhelm the thread but run quickly on changes
