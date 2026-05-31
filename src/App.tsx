@@ -222,7 +222,7 @@ const stripDataUrls = (val: any): any => {
   return val;
 };
 
-const compressImage = (base64: string, maxWidth = 1200, maxHeight = 1600): Promise<string> => {
+const compressImage = (base64: string, maxWidth = 1000, maxHeight = 1400): Promise<string> => {
   return new Promise((resolve) => {
     if (!base64 || !base64.startsWith("data:")) {
       resolve(base64);
@@ -252,7 +252,7 @@ const compressImage = (base64: string, maxWidth = 1200, maxHeight = 1600): Promi
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
       } else {
         resolve(base64);
       }
@@ -531,11 +531,32 @@ export default function App() {
       } catch (e) {}
       setActiveTab(user.role === "ADMIN" ? "STEP1_SUBJECT" : "STEP3_SCAN");
     } else {
-      setLoginError("Tài khoản/Mật khẩu không đúng.");
+      setLoginError("Tài khoản/Mật khẩu không chính xác.");
     }
   };
 
   const handleLogout = () => {
+    const pendingUploadsCount = images.filter(
+      (img) => img.src && img.src.startsWith("data:") && !img.firebaseImageUrl,
+    ).length + scanHistory.filter(
+      (item) => item.imageSrc && item.imageSrc.startsWith("data:") && !item.firebaseImageUrl
+    ).length;
+
+    if (pendingUploadsCount > 0) {
+      setDialogState({
+        type: "confirm",
+        variant: "danger",
+        message: `Đang có ${pendingUploadsCount} ảnh quét/chấm bài chưa hoàn thành tải lên Lưu trữ Đám mây (Cloud). Nếu bạn Đăng xuất (Thoát) lúc này, các file ảnh này sẽ bị trống và Tài khoản quản trị (Admin) cũng như bạn khi đăng nhập lại sẽ không thể xem được ảnh chụp bài làm. Bạn có thực sự muốn Đăng xuất ngay bây giờ không?`,
+        onConfirm: () => {
+          executeLogout();
+        }
+      });
+    } else {
+      executeLogout();
+    }
+  };
+
+  const executeLogout = () => {
     isLoadedRef.current = false;
     isLoggingOutRef.current = true;
     initialFetchDone.current = false;
@@ -1627,7 +1648,7 @@ export default function App() {
     const finalQueueUserId = activeQueueUserId || currentUserId;
     const queueDocId = "scanQueue_" + finalQueueUserId;
 
-    // 1. Upload base64 src to firebaseImageUrl
+    // 1. Upload base64 src to firebaseImageUrl (sequentially to avoid choking bandwidth)
     const itemsToUpload = images.filter(
       (img) =>
         img.src &&
@@ -1648,9 +1669,10 @@ export default function App() {
       }
       setImages(newImages);
 
-      for (const item of itemsToUpload) {
-        uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src)
-          .then((url) => {
+      const runSequentialUploads = async () => {
+        for (const item of itemsToUpload) {
+          try {
+            const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src);
             setImages((prev) =>
               prev.map((p) =>
                 p.id === item.id
@@ -1663,9 +1685,8 @@ export default function App() {
                   : p,
               ),
             );
-          })
-          .catch((e) => {
-            console.error("Queue upload failed", e);
+          } catch (e) {
+            console.error("Queue upload failed for " + item.id, e);
             setImages((prev) =>
               prev.map((p) =>
                 p.id === item.id
@@ -1673,8 +1694,10 @@ export default function App() {
                   : p,
               ),
             );
-          });
-      }
+          }
+        }
+      };
+      runSequentialUploads();
     }
 
     // 2. Sync metadata to Firestore
@@ -1752,57 +1775,53 @@ export default function App() {
       );
       if (itemsToUpload.length === 0) return;
 
-      itemsToUpload.forEach((item) => {
+      // Upload sequentially to preserve network bandwidth and upload very fast
+      for (const item of itemsToUpload) {
         uploadingRef.current.add(item.id);
 
-        const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-        uploadBase64ToStorage(path, item.imageSrc)
-          .then((url) => {
-            // Update local state history
-            setScanHistory((prev) =>
-              prev.map((p) =>
-                p.id === item.id ? { ...p, firebaseImageUrl: url } : p,
-              ),
-            );
+        try {
+          const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
+          const url = await uploadBase64ToStorage(path, item.imageSrc);
 
-            // Also update selectedResult if it is the currently viewed item so it renders immediately
-            setSelectedResult((prev: any) => {
-              if (prev && prev.id === item.id) {
-                return { ...prev, firebaseImageUrl: url };
-              }
-              return prev;
-            });
+          // Update local state history
+          setScanHistory((prev) =>
+            prev.map((p) =>
+              p.id === item.id ? { ...p, firebaseImageUrl: url } : p,
+            ),
+          );
 
-            // Immediately persist to Firestore Doc directly bypassing general backups
-            const docRef = doc(db, "scanHistory", item.id);
-            const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } =
-              item as any;
-            metadataOnly.firebaseImageUrl = url; // Set the URL explicitly
-
-            const cleanMetadata = stripDataUrls(JSON.parse(JSON.stringify(metadataOnly)));
-            if (item.timestamp) {
-              cleanMetadata.timestamp = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp);
+          // Also update selectedResult if it is the currently viewed item so it renders immediately
+          setSelectedResult((prev: any) => {
+            if (prev && prev.id === item.id) {
+              return { ...prev, firebaseImageUrl: url };
             }
-
-            setDoc(docRef, cleanMetadata, { merge: true })
-              .then(() => {
-                unpushedHistoryIds.current.delete(item.id);
-                localStorage.setItem(
-                  "unpushed_history_ids",
-                  JSON.stringify(Array.from(unpushedHistoryIds.current)),
-                );
-              })
-              .catch((err) => {
-                console.error("Direct document update of firebaseImageUrl failed:", err);
-              });
-          })
-          .catch((e) => {
-            console.error("Storage upload failed for " + item.id, e);
-          })
-          .finally(() => {
-            uploadingRef.current.delete(item.id);
+            return prev;
           });
-      });
+
+          // Immediately persist to Firestore Doc directly bypassing general backups
+          const docRef = doc(db, "scanHistory", item.id);
+          const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } =
+            item as any;
+          metadataOnly.firebaseImageUrl = url; // Set the URL explicitly
+
+          const cleanMetadata = stripDataUrls(JSON.parse(JSON.stringify(metadataOnly)));
+          if (item.timestamp) {
+            cleanMetadata.timestamp = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp);
+          }
+
+          await setDoc(docRef, cleanMetadata, { merge: true });
+
+          unpushedHistoryIds.current.delete(item.id);
+          localStorage.setItem(
+            "unpushed_history_ids",
+            JSON.stringify(Array.from(unpushedHistoryIds.current)),
+          );
+        } catch (e) {
+          console.error("Storage upload failed for " + item.id, e);
+        } finally {
+          uploadingRef.current.delete(item.id);
+        }
+      }
     };
 
     // Don't overwhelm the thread but run quickly on changes
@@ -2429,17 +2448,31 @@ export default function App() {
          const newId = Date.now().toString() + Math.random().toString();
          addUnpushedImageId(newId);
          registerCurrentSessionCaptureId(newId);
-         setImages((prev) => [
-           ...prev,
-           {
-             id: newId,
-             src: imageBase64,
-             selected: true,
-             status: "pending",
-             examName: gradeExamName,
-             classId: activeClass,
-           },
-         ]);
+         compressImage(imageBase64).then((compressed) => {
+           setImages((prev) => [
+             ...prev,
+             {
+               id: newId,
+               src: compressed,
+               selected: true,
+               status: "pending",
+               examName: gradeExamName,
+               classId: activeClass,
+             },
+           ]);
+         }).catch(() => {
+           setImages((prev) => [
+             ...prev,
+             {
+               id: newId,
+               src: imageBase64,
+               selected: true,
+               status: "pending",
+               examName: gradeExamName,
+               classId: activeClass,
+             },
+           ]);
+         });
        }
     }
   }, [webcamRef, gradeExamName, activeClass]);
@@ -2784,8 +2817,8 @@ export default function App() {
         img.crossOrigin = "anonymous";
         img.onload = () => {
           const canvas = document.createElement("canvas");
-          const MAX_WIDTH = 1200;
-          const MAX_HEIGHT = 1600;
+          const MAX_WIDTH = 1000;
+          const MAX_HEIGHT = 1400;
           let width = img.width;
           let height = img.height;
 
@@ -2807,7 +2840,7 @@ export default function App() {
             ctx.fillStyle = "#FFFFFF";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", 0.9));
+            resolve(canvas.toDataURL("image/jpeg", 0.75));
           } else {
             resolve(sourceImageToProcess);
           }
@@ -3614,8 +3647,8 @@ export default function App() {
           img.crossOrigin = "anonymous";
           img.onload = () => {
             const canvas = document.createElement("canvas");
-            const MAX_WIDTH = 1200;
-            const MAX_HEIGHT = 1600;
+            const MAX_WIDTH = 1000;
+            const MAX_HEIGHT = 1400;
             let width = img.width;
             let height = img.height;
 
@@ -3637,8 +3670,8 @@ export default function App() {
               ctx.fillStyle = "#FFFFFF";
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               ctx.drawImage(img, 0, 0, width, height);
-              // Cải thiện chất lượng ảnh để AI đọc chính xác hơn (đánh đổi tốc độ/dung lượng một chút)
-              resolve(canvas.toDataURL("image/jpeg", 0.9));
+              // Cải thiện chất lượng ảnh để AI đọc chính xác hơn (đã tối ưu hoá dung lượng)
+              resolve(canvas.toDataURL("image/jpeg", 0.75));
             } else {
               resolve(image.src);
             }
@@ -3912,6 +3945,7 @@ export default function App() {
           updatedAt: Date.now(),
           imageSrc: img.processedDataUrl,
           originalImageSrc: img.src,
+          firebaseImageUrl: img.firebaseImageUrl || "",
           rawAnswers: studentAnswers,
         };
         newHistoryRecords.push(newRecord);
