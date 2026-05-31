@@ -782,11 +782,11 @@ export const processOMR = async (imageCanvas: HTMLCanvasElement, config: OMRConf
 
       const tmpCanvas = document.createElement('canvas');
       cv.imshow(tmpCanvas, debugImg);
-      results.debugImageBase64 = tmpCanvas.toDataURL('image/jpeg');
+      results.debugImageBase64 = tmpCanvas.toDataURL('image/jpeg', 0.40);
 
       const cleanCanvas = document.createElement('canvas');
       cv.imshow(cleanCanvas, colorWarped);
-      results.warpedDataUrl = cleanCanvas.toDataURL('image/jpeg');
+      results.warpedDataUrl = cleanCanvas.toDataURL('image/jpeg', 0.45);
 
   } catch (err) {
       console.error("Local OMR Error: ", err);

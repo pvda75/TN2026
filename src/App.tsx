@@ -6082,6 +6082,7 @@ export default function App() {
                           style={{ width: `${imageZoomLevel * 100}%` }}
                         >
                           <img
+                            key={selectedResult.id}
                             src={
                               selectedResult.imageSrc ||
                               selectedResult.firebaseImageUrl
