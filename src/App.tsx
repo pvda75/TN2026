@@ -1688,7 +1688,7 @@ export default function App() {
               return { ...safeImg, result: safeResult };
             });
 
-            const cleanSafeImages = stripDataUrls(safeImages);
+            const cleanSafeImages = stripDataUrls(JSON.parse(JSON.stringify(safeImages)));
             const safeImagesStr = JSON.stringify(cleanSafeImages);
             const currentStr = JSON.stringify(latestImgs);
 
@@ -1739,7 +1739,7 @@ export default function App() {
         return { ...safeImg, result: safeResult };
       });
 
-      const cleanSafeImages = stripDataUrls(safeImages);
+      const cleanSafeImages = stripDataUrls(JSON.parse(JSON.stringify(safeImages)));
       const safeImagesStr = JSON.stringify(cleanSafeImages);
 
       const snapshotOfUnpushed = new Set(images.map((i: any) => i.id));
