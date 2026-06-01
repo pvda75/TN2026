@@ -386,13 +386,96 @@ interface CachedImageProps {
   key?: string | number;
 }
 
+const imageMemoryCache: Record<string, string> = {};
+
+const getCachedUrlSync = (src: string): string => {
+  if (!src) return "";
+  if (src.startsWith("data:") || src.startsWith("blob:") || src.startsWith("http://localhost")) {
+    return src;
+  }
+  return imageMemoryCache[src] || "";
+};
+
 const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps) => {
-  const [loaded, setLoaded] = useState(false);
-  const [hasError, setHasError] = useState(false);
+  const initialUrl = getCachedUrlSync(src);
+  const [displaySrc, setDisplaySrc] = useState<string>(initialUrl);
+  const [loaded, setLoaded] = useState<boolean>(!!initialUrl);
+  const [hasError, setHasError] = useState<boolean>(false);
 
   useEffect(() => {
+    if (!src) {
+      setDisplaySrc("");
+      setLoaded(false);
+      setHasError(false);
+      return;
+    }
+
+    const currentCached = getCachedUrlSync(src);
+    if (currentCached) {
+      setDisplaySrc(currentCached);
+      setLoaded(true);
+      setHasError(false);
+      return;
+    }
+
+    // Needs async load
+    setDisplaySrc("");
     setLoaded(false);
     setHasError(false);
+
+    let isMounted = true;
+    const cacheKey = "img_cache_" + src;
+
+    const loadCachedOrFetch = async () => {
+      try {
+        // 1. Try localforage
+        const cachedBlob = await localforage.getItem<Blob>(cacheKey);
+        if (cachedBlob && isMounted) {
+          const localUrl = URL.createObjectURL(cachedBlob);
+          imageMemoryCache[src] = localUrl;
+          if (isMounted) {
+            setDisplaySrc(localUrl);
+            setLoaded(true);
+          }
+          onLoad?.();
+          return;
+        }
+
+        // 2. Fetch remote
+        const response = await fetch(src, { referrerPolicy: "no-referrer" });
+        if (!response.ok) {
+          throw new Error("HTTP error " + response.status);
+        }
+        const blob = await response.blob();
+
+        try {
+          await localforage.setItem(cacheKey, blob);
+        } catch (e) {
+          console.warn("Failed to write to localforage cache", e);
+        }
+
+        if (isMounted) {
+          const localUrl = URL.createObjectURL(blob);
+          imageMemoryCache[src] = localUrl;
+          setDisplaySrc(localUrl);
+          setLoaded(true);
+        }
+      } catch (err) {
+        console.error("Failed to load and cache image:", err);
+        if (isMounted) {
+          setDisplaySrc(src);
+          // Set loaded to true as we're passing standard URL fallback to img element
+          setLoaded(true);
+        }
+        onError?.();
+      }
+    };
+
+    loadCachedOrFetch();
+
+    return () => {
+      isMounted = false;
+    };
   }, [src]);
 
   if (!src) {
@@ -417,9 +500,8 @@ const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps)
         </div>
       ) : null}
       <img
-        src={src}
+        src={displaySrc || src}
         referrerPolicy="no-referrer"
-        loading="lazy"
         className={`${className} transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
         alt={alt || "Scanned image"}
         onLoad={() => {
