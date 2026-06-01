@@ -222,13 +222,31 @@ const stripDataUrls = (val: any): any => {
   return val;
 };
 
-const compressImage = (base64: string, maxWidth = 720, maxHeight = 960): Promise<string> => {
+const compressImage = (input: string | File | Blob, maxWidth = 720, maxHeight = 960): Promise<string> => {
   return new Promise((resolve) => {
-    if (!base64 || !base64.startsWith("data:")) {
-      resolve(base64);
+    if (!input) {
+      resolve("");
       return;
     }
+    let srcUrl = "";
+    let isBlobUrl = false;
+
+    if (input instanceof File || input instanceof Blob) {
+      srcUrl = URL.createObjectURL(input);
+      isBlobUrl = true;
+    } else if (typeof input === "string") {
+      if (!input.startsWith("data:") && !input.startsWith("http") && !input.startsWith("blob:")) {
+        resolve(input);
+        return;
+      }
+      srcUrl = input;
+    } else {
+      resolve("");
+      return;
+    }
+
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = document.createElement("canvas");
       let width = img.width;
@@ -252,15 +270,25 @@ const compressImage = (base64: string, maxWidth = 720, maxHeight = 960): Promise
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.42));
+        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.42);
+        if (isBlobUrl) {
+          URL.revokeObjectURL(srcUrl);
+        }
+        resolve(compressedBase64);
       } else {
-        resolve(base64);
+        if (isBlobUrl) {
+          URL.revokeObjectURL(srcUrl);
+        }
+        resolve(typeof input === "string" ? input : "");
       }
     };
     img.onerror = () => {
-      resolve(base64);
+      if (isBlobUrl) {
+        URL.revokeObjectURL(srcUrl);
+      }
+      resolve(typeof input === "string" ? input : "");
     };
-    img.src = base64;
+    img.src = srcUrl;
   });
 };
 
@@ -348,6 +376,213 @@ const setQuotaExceeded = () => {
 };
 
 const sessionCacheMemory: Record<string, string> = {};
+
+interface QueueImageCardProps {
+  img: any;
+  activeUploadingIds: string[];
+  setImages: React.Dispatch<React.SetStateAction<any[]>>;
+  setEditingImageConfigId: (id: string | null) => void;
+  addDeletedImageId: (id: string) => void;
+}
+
+const QueueImageCard = React.memo(({
+  img,
+  activeUploadingIds,
+  setImages,
+  setEditingImageConfigId,
+  addDeletedImageId,
+}: QueueImageCardProps) => {
+  const isUploading = activeUploadingIds.includes(img.id);
+
+  return (
+    <div
+      className={`relative border rounded-lg overflow-hidden flex flex-col bg-white shadow-sm transition-colors ${img.selected ? "border-indigo-500 font-bold bg-slate-50/50" : "border-slate-200"} ${img.status === "error" ? "border-red-300 bg-red-50/10" : ""} ${img.status === "done" ? "border-green-400" : ""}`}
+    >
+      <div
+        className="aspect-[1/1.414] bg-slate-100 relative cursor-pointer group"
+        onClick={() => {
+          if (img.status === "processing") return;
+          setImages((prev) =>
+            prev.map((i) =>
+              i.id === img.id
+                ? { ...i, selected: !i.selected }
+                : i,
+            ),
+          );
+        }}
+      >
+        {img.src || img.firebaseImageUrl ? (
+          <>
+            <img
+              src={img.src || img.firebaseImageUrl}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+            />
+            {isUploading && (
+              <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-1 text-center z-10 transition-all duration-200">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mb-1"></div>
+                <span className="text-[10px] text-white font-medium bg-indigo-600/95 px-1.5 py-0.5 rounded shadow-sm">
+                  Đang gửi lên Cloud...
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 p-1 text-center">
+            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2 mt-2"></div>
+            <span className="text-[9px] text-slate-500 font-medium leading-normal max-w-[90%]">
+              Đang đồng bộ ảnh từ máy gốc...
+            </span>
+          </div>
+        )}
+        <div className="absolute top-2 left-2 flex gap-1">
+          <div
+            className={`w-5 h-5 rounded border flex items-center justify-center ${img.selected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white/80 border-slate-300"}`}
+          >
+            {img.selected && (
+              <CheckCircle className="w-3 h-3" />
+            )}
+          </div>
+          {img.status === "done" && (
+            <div className="w-5 h-5 bg-green-500 text-white rounded flex items-center justify-center">
+              <CheckCircle className="w-3 h-3" />
+            </div>
+          )}
+          {img.status === "scanned" && (
+            <div className="w-5 h-5 bg-sky-500 text-white rounded flex items-center justify-center">
+              <CheckCircle className="w-3 h-3" />
+            </div>
+          )}
+          {img.status === "error" && (
+            <div className="w-5 h-5 bg-red-500 text-white rounded flex items-center justify-center text-[10px] font-bold">
+              !
+            </div>
+          )}
+        </div>
+        {img.status === "processing" && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
+      </div>
+      {(img.errorMsg ||
+        img.status === "done" ||
+        img.status === "scanned") && (
+        <div
+          className={`text-[10px] p-2 leading-tight flex-1 flex flex-col justify-between ${img.status === "error" ? "text-red-600 bg-red-50" : img.status === "scanned" ? "text-sky-700 bg-sky-50" : "text-green-700 bg-green-50"}`}
+        >
+          <div>
+            <div className="mb-1 font-medium">{img.errorMsg}</div>
+            {img.status === "scanned" && (
+              <div className="mb-1">
+                Đã phân tích xong.
+              </div>
+            )}
+            {img.status === "done" && (
+              <div className="mb-1 font-medium text-slate-800">
+                Đ: <span className="text-green-600 font-bold">{(img.result?.score || 0).toFixed(2)}</span> - SBD: <span className="font-bold">{img.result?.studentId}</span> - Đề: <span className="font-bold">{img.result?.examCode || "?"}</span>
+              </div>
+            )}
+          </div>
+
+          {(img.status === "error" ||
+            img.status === "scanned") &&
+            img.rawAnswers && (
+              <div
+                className="flex flex-wrap items-center gap-1 mt-1 border-t border-dashed border-slate-200 pt-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="font-semibold text-slate-700">
+                  Mã:
+                </span>
+                <input
+                  type="text"
+                  className="border border-slate-300 rounded px-1 w-10 text-xs bg-white text-slate-800 outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+                  value={img.rawAnswers.examCode || ""}
+                  onChange={(e) => {
+                    const newCode = e.target.value;
+                    setImages((prev) =>
+                      prev.map((i) =>
+                        i.id === img.id
+                          ? {
+                              ...i,
+                              status: "scanned",
+                              errorMsg: undefined,
+                              rawAnswers: {
+                                ...(i.rawAnswers as any),
+                                examCode: newCode,
+                              },
+                            }
+                          : i,
+                      ),
+                    );
+                  }}
+                  placeholder="?"
+                />
+                <span className="font-semibold text-slate-700 ml-1">
+                  SBD:
+                </span>
+                <input
+                  type="text"
+                  className="border border-slate-300 rounded px-1 w-20 text-xs bg-white text-slate-800 outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+                  value={img.rawAnswers.studentId || ""}
+                  onChange={(e) => {
+                    const newStudentId = e.target.value;
+                    setImages((prev) =>
+                      prev.map((i) =>
+                        i.id === img.id
+                          ? {
+                              ...i,
+                              status: "scanned",
+                              errorMsg: undefined,
+                              rawAnswers: {
+                                ...(i.rawAnswers as any),
+                                studentId: newStudentId,
+                              },
+                            }
+                          : i,
+                      ),
+                    );
+                  }}
+                  placeholder="?"
+                />
+              </div>
+            )}
+          {(img.status === "error" ||
+            img.status === "scanned") && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingImageConfigId(img.id);
+              }}
+              className="mt-2 text-indigo-600 hover:text-indigo-800 text-[10px] font-medium flex items-center gap-1 w-full p-1 rounded hover:bg-slate-200/50"
+            >
+              <Target className="w-3 h-3" /> Căn chỉnh khung ảnh này
+            </button>
+          )}
+        </div>
+      )}
+      {img.status !== "processing" && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setImages((prev) => {
+              addDeletedImageId(img.id);
+              return prev.filter(
+                (i) => i.id !== img.id,
+              );
+            });
+          }}
+          className="absolute top-1 right-1 bg-red-400/90 hover:bg-red-500 text-white w-6 h-6 rounded-full flex items-center justify-center shadow transition-colors backdrop-blur-xs"
+        >
+          <span className="text-xs mb-0.5">&times;</span>
+        </button>
+      )}
+    </div>
+  );
+});
+QueueImageCard.displayName = "QueueImageCard";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
@@ -1146,50 +1381,54 @@ export default function App() {
   );
   const [imageSearchPhrase, setImageSearchPhrase] = useState("");
 
-  const examImages = [...images]
-    .filter(
-      (img) => img.examName === gradeExamName && img.classId === activeClass,
-    )
-    .sort((a, b) => {
-      const da = parseFloat(a.id);
-      const db = parseFloat(b.id);
-      if (!isNaN(da) && !isNaN(db)) return da - db;
-      return a.id.localeCompare(b.id);
-    });
+  const examImages = React.useMemo(() => {
+    return [...images]
+      .filter(
+        (img) => img.examName === gradeExamName && img.classId === activeClass,
+      )
+      .sort((a, b) => {
+        const da = parseFloat(a.id);
+        const db = parseFloat(b.id);
+        if (!isNaN(da) && !isNaN(db)) return da - db;
+        return a.id.localeCompare(b.id);
+      });
+  }, [images, gradeExamName, activeClass]);
 
-  const displayedImages = examImages.filter((img) => {
-    let matchFilter = true;
-    if (imageFilter === "INCOMPLETE") matchFilter = img.status !== "done";
-    if (imageFilter === "DONE") matchFilter = img.status === "done";
-    if (!matchFilter) return false;
+  const displayedImages = React.useMemo(() => {
+    return examImages.filter((img) => {
+      let matchFilter = true;
+      if (imageFilter === "INCOMPLETE") matchFilter = img.status !== "done";
+      if (imageFilter === "DONE") matchFilter = img.status === "done";
+      if (!matchFilter) return false;
 
-    if (imageSearchPhrase.trim()) {
-      const terms = imageSearchPhrase.toLowerCase().trim().split(/\s+/);
-      const studentId = (
-        img.result?.studentId ||
-        img.rawAnswers?.studentId ||
-        ""
-      ).toLowerCase();
-      const examCode = (
-        img.result?.examCode ||
-        img.rawAnswers?.examCode ||
-        ""
-      ).toLowerCase();
-      const className = (img.result?.className || "").toLowerCase();
+      if (imageSearchPhrase.trim()) {
+        const terms = imageSearchPhrase.toLowerCase().trim().split(/\s+/);
+        const studentId = (
+          img.result?.studentId ||
+          img.rawAnswers?.studentId ||
+          ""
+        ).toLowerCase();
+        const examCode = (
+          img.result?.examCode ||
+          img.rawAnswers?.examCode ||
+          ""
+        ).toLowerCase();
+        const className = (img.result?.className || "").toLowerCase();
 
-      // All terms must match at least one of the fields
-      for (const term of terms) {
-        if (
-          !studentId.includes(term) &&
-          !examCode.includes(term) &&
-          !className.includes(term)
-        ) {
-          return false;
+        // All terms must match at least one of the fields
+        for (const term of terms) {
+          if (
+            !studentId.includes(term) &&
+            !examCode.includes(term) &&
+            !className.includes(term)
+          ) {
+            return false;
+          }
         }
       }
-    }
-    return true;
-  });
+      return true;
+    });
+  }, [examImages, imageFilter, imageSearchPhrase]);
 
   // Step 4: Results
   const [scanHistory, setScanHistory] = useState<any[]>([]);
@@ -1774,9 +2013,6 @@ export default function App() {
             );
             return updatedImages;
           });
-          if (updatedImages.length > 0) {
-            syncQueueToFirestore(updatedImages, finalQueueUserId);
-          }
         } catch (e) {
           console.error("Queue upload failed for " + item.id, e);
         } finally {
@@ -2663,12 +2899,10 @@ export default function App() {
         const chunk = fileList.slice(i, i + limit);
         await Promise.all(
           chunk.map((file: any) => {
-            return new Promise<void>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = async (e) => {
-                try {
-                  const base64 = e.target?.result as string;
-                  const compressed = await compressImage(base64);
+            return new Promise<void>(async (resolve) => {
+              try {
+                const compressed = await compressImage(file);
+                if (compressed) {
                   const newId = Date.now().toString() + Math.random().toString();
                   processedItems.push({
                     id: newId,
@@ -2678,14 +2912,12 @@ export default function App() {
                     examName: gradeExamName,
                     classId: activeClass,
                   });
-                } catch (err) {
-                  console.error("Compression failed for file: ", err);
-                } finally {
-                  resolve();
                 }
-              };
-              reader.onerror = () => resolve();
-              reader.readAsDataURL(file);
+              } catch (err) {
+                console.error("Compression failed for file: ", err);
+              } finally {
+                resolve();
+              }
             });
           })
         );
@@ -5232,194 +5464,14 @@ export default function App() {
 
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                           {displayedImages.map((img) => (
-                            <div
+                            <QueueImageCard
                               key={img.id}
-                              className={`relative border rounded-lg overflow-hidden flex flex-col bg-white shadow-sm transition-colors ${img.selected ? "border-indigo-500" : "border-slate-200"} ${img.status === "error" ? "border-red-300" : ""} ${img.status === "done" ? "border-green-400" : ""}`}
-                            >
-                              <div
-                                className="aspect-[1/1.414] bg-slate-100 relative cursor-pointer"
-                                onClick={() => {
-                                  if (img.status === "processing") return;
-                                  setImages((prev) =>
-                                    prev.map((i) =>
-                                      i.id === img.id
-                                        ? { ...i, selected: !i.selected }
-                                        : i,
-                                    ),
-                                  );
-                                }}
-                              >
-                                {img.src || img.firebaseImageUrl ? (
-                                  <>
-                                    <img
-                                      src={img.src || img.firebaseImageUrl}
-                                      loading="lazy"
-                                      referrerPolicy="no-referrer"
-                                      className="absolute inset-0 w-full h-full object-cover"
-                                    />
-                                    {activeUploadingIds.includes(img.id) && (
-                                      <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-1 text-center z-10 transition-all duration-200">
-                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mb-1"></div>
-                                        <span className="text-[9px] text-white font-medium bg-indigo-600/95 px-1.5 py-0.5 rounded shadow-sm">
-                                          Đang gửi lên Cloud...
-                                        </span>
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 p-1 text-center">
-                                    <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-2 mt-2"></div>
-                                    <span className="text-[9px] text-slate-500 font-medium leading-normal max-w-[90%]">
-                                      Đang đồng bộ ảnh từ máy gốc...
-                                    </span>
-                                  </div>
-                                )}
-                                <div className="absolute top-2 left-2 flex gap-1">
-                                  <div
-                                    className={`w-5 h-5 rounded border flex items-center justify-center ${img.selected ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white/80 border-slate-300"}`}
-                                  >
-                                    {img.selected && (
-                                      <CheckCircle className="w-3 h-3" />
-                                    )}
-                                  </div>
-                                  {img.status === "done" && (
-                                    <div className="w-5 h-5 bg-green-500 text-white rounded flex items-center justify-center">
-                                      <CheckCircle className="w-3 h-3" />
-                                    </div>
-                                  )}
-                                  {img.status === "scanned" && (
-                                    <div className="w-5 h-5 bg-sky-500 text-white rounded flex items-center justify-center">
-                                      <CheckCircle className="w-3 h-3" />
-                                    </div>
-                                  )}
-                                  {img.status === "error" && (
-                                    <div className="w-5 h-5 bg-red-500 text-white rounded flex items-center justify-center text-[10px] font-bold">
-                                      !
-                                    </div>
-                                  )}
-                                </div>
-                                {img.status === "processing" && (
-                                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                  </div>
-                                )}
-                              </div>
-                              {(img.errorMsg ||
-                                img.status === "done" ||
-                                img.status === "scanned") && (
-                                <div
-                                  className={`text-[10px] p-2 leading-tight flex-1 ${img.status === "error" ? "text-red-600 bg-red-50" : img.status === "scanned" ? "text-sky-700 bg-sky-50" : "text-green-700 bg-green-50"}`}
-                                >
-                                  <div className="mb-1">{img.errorMsg}</div>
-                                  {img.status === "scanned" && (
-                                    <div className="mb-1">
-                                      Đã phân tích xong.
-                                    </div>
-                                  )}
-                                  {img.status === "done" && (
-                                    <div className="mb-1">
-                                      Điểm:{" "}
-                                      {(img.result?.score || 0).toFixed(2)} -
-                                      SBD: {img.result?.studentId} - Mã đề:{" "}
-                                      {img.result?.examCode || "?"}
-                                    </div>
-                                  )}
-
-                                  {(img.status === "error" ||
-                                    img.status === "scanned") &&
-                                    img.rawAnswers && (
-                                      <div
-                                        className="flex flex-wrap items-center gap-1 mt-1"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        <span className="font-semibold text-slate-700">
-                                          Mã:
-                                        </span>
-                                        <input
-                                          type="text"
-                                          className="border border-slate-300 rounded px-1 w-10 text-xs bg-white text-slate-800 outline-none focus:ring-1 focus:ring-indigo-500"
-                                          value={img.rawAnswers.examCode || ""}
-                                          onChange={(e) => {
-                                            setImages((prev) =>
-                                              prev.map((i) =>
-                                                i.id === img.id
-                                                  ? {
-                                                      ...i,
-                                                      status: "scanned",
-                                                      errorMsg: undefined,
-                                                      rawAnswers: {
-                                                        ...(i.rawAnswers as any),
-                                                        examCode:
-                                                          e.target.value,
-                                                      },
-                                                    }
-                                                  : i,
-                                              ),
-                                            );
-                                          }}
-                                          placeholder="?"
-                                        />
-                                        <span className="font-semibold text-slate-700 ml-1">
-                                          SBD:
-                                        </span>
-                                        <input
-                                          type="text"
-                                          className="border border-slate-300 rounded px-1 w-20 text-xs bg-white text-slate-800 outline-none focus:ring-1 focus:ring-indigo-500"
-                                          value={img.rawAnswers.studentId || ""}
-                                          onChange={(e) => {
-                                            setImages((prev) =>
-                                              prev.map((i) =>
-                                                i.id === img.id
-                                                  ? {
-                                                      ...i,
-                                                      status: "scanned",
-                                                      errorMsg: undefined,
-                                                      rawAnswers: {
-                                                        ...(i.rawAnswers as any),
-                                                        studentId:
-                                                          e.target.value,
-                                                      },
-                                                    }
-                                                  : i,
-                                              ),
-                                            );
-                                          }}
-                                          placeholder="?"
-                                        />
-                                      </div>
-                                    )}
-                                  {(img.status === "error" ||
-                                    img.status === "scanned") && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditingImageConfigId(img.id);
-                                      }}
-                                      className="mt-2 text-indigo-600 hover:text-indigo-800 text-[10px] font-medium flex items-center gap-1 w-full p-1 rounded hover:bg-slate-100"
-                                    >
-                                      <Target className="w-3 h-3" /> Căn chỉnh
-                                      khung ảnh này
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                              {img.status !== "processing" && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setImages((prev) => {
-                                      addDeletedImageId(img.id);
-                                      return prev.filter(
-                                        (i) => i.id !== img.id,
-                                      );
-                                    });
-                                  }}
-                                  className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white w-6 h-6 rounded-full flex items-center justify-center shadow"
-                                >
-                                  <span className="text-xs mb-0.5">x</span>
-                                </button>
-                              )}
-                            </div>
+                              img={img}
+                              activeUploadingIds={activeUploadingIds}
+                              setImages={setImages}
+                              setEditingImageConfigId={setEditingImageConfigId}
+                              addDeletedImageId={addDeletedImageId}
+                            />
                           ))}
                         </div>
 
