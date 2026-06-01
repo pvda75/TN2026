@@ -1665,6 +1665,10 @@ export default function App() {
 
   const syncQueueToFirestore = useCallback((currentImages: any[], queueUserId: string) => {
     if (firestoreQuotaExceeded) return;
+    if (queueUserId && queueUserId !== currentUserId) {
+      // Grader/Viewer must not overwrite uploader's scan queue
+      return;
+    }
     const queueDocId = "scanQueue_" + queueUserId;
 
     const safeImages = currentImages.map((img) => {
@@ -1718,6 +1722,10 @@ export default function App() {
   // background sync scan queue 'images' to storage and firestore
   useEffect(() => {
     if (!initialFetchDone.current || !initialQueueFetchDone.current) return;
+    if (activeQueueUserId && activeQueueUserId !== currentUserId) {
+      // Grader/Viewer must not sync or upload another user's scan queue
+      return;
+    }
     const finalQueueUserId = activeQueueUserId || currentUserId;
     const queueDocId = "scanQueue_" + finalQueueUserId;
 
@@ -5197,10 +5205,10 @@ export default function App() {
                                   );
                                 }}
                               >
-                                {img.src ? (
+                                {img.src || img.firebaseImageUrl ? (
                                   <>
                                     <img
-                                      src={img.src}
+                                      src={img.src || img.firebaseImageUrl}
                                       loading="lazy"
                                       referrerPolicy="no-referrer"
                                       className="absolute inset-0 w-full h-full object-cover"
