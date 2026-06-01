@@ -387,110 +387,51 @@ interface CachedImageProps {
 }
 
 const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps) => {
-  const [displaySrc, setDisplaySrc] = useState<string>("");
-  const [loading, setLoading] = useState(false);
-  const createdUrlRef = React.useRef<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
 
-  React.useEffect(() => {
-    if (!src) {
-      setDisplaySrc("");
-      return;
-    }
-
-    if (src.startsWith("data:") || src.startsWith("blob:") || src.startsWith("http://localhost")) {
-      setDisplaySrc(src);
-      onLoad?.();
-      return;
-    }
-
-    let isMounted = true;
-    const cacheKey = "img_cache_" + src;
-
-    const loadCachedOrFetch = async () => {
-      try {
-        setLoading(true);
-        const cachedBlob = await localforage.getItem<Blob>(cacheKey);
-        if (cachedBlob && isMounted) {
-          const localUrl = URL.createObjectURL(cachedBlob);
-          if (createdUrlRef.current) {
-            URL.revokeObjectURL(createdUrlRef.current);
-          }
-          createdUrlRef.current = localUrl;
-          setDisplaySrc(localUrl);
-          setLoading(false);
-          onLoad?.();
-          return;
-        }
-
-        const response = await fetch(src, { referrerPolicy: "no-referrer" });
-        if (!response.ok) {
-          throw new Error("HTTP error " + response.status);
-        }
-        const blob = await response.blob();
-
-        try {
-          await localforage.setItem(cacheKey, blob);
-        } catch (e) {
-          console.warn("Failed to write to localforage cache", e);
-        }
-
-        if (isMounted) {
-          const localUrl = URL.createObjectURL(blob);
-          if (createdUrlRef.current) {
-            URL.revokeObjectURL(createdUrlRef.current);
-          }
-          createdUrlRef.current = localUrl;
-          setDisplaySrc(localUrl);
-        }
-      } catch (err) {
-        console.error("Failed to load and cache image:", err);
-        if (isMounted) {
-          setDisplaySrc(src);
-        }
-        onError?.();
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadCachedOrFetch();
-
-    return () => {
-      isMounted = false;
-    };
+  useEffect(() => {
+    setLoaded(false);
+    setHasError(false);
   }, [src]);
 
-  React.useEffect(() => {
-    return () => {
-      if (createdUrlRef.current) {
-        try {
-          URL.revokeObjectURL(createdUrlRef.current);
-        } catch (e) {}
-        createdUrlRef.current = null;
-      }
-    };
-  }, []);
-
-  if (loading && !displaySrc) {
+  if (!src) {
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 p-1 text-center">
-        <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-1"></div>
-        <span className="text-[10px] text-slate-500 font-medium">Đang tải...</span>
+        <span className="text-[10px] text-slate-400 font-medium">Không có ảnh</span>
       </div>
     );
   }
 
   return (
-    <img
-      src={displaySrc || src}
-      referrerPolicy="no-referrer"
-      className={className}
-      alt={alt}
-      onLoad={onLoad}
-      onError={onError}
-    />
+    <div className="relative w-full h-full bg-slate-50 overflow-hidden">
+      {!loaded && !hasError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-1 text-center bg-slate-50 z-10">
+          <div className="w-5 h-5 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin mb-1"></div>
+          <span className="text-[9px] text-slate-400">Đang tải...</span>
+        </div>
+      )}
+      {hasError ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center bg-red-50 text-red-500 text-[10px] z-10">
+          <span>Lỗi tải ảnh</span>
+        </div>
+      ) : null}
+      <img
+        src={src}
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        className={`${className} transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+        alt={alt || "Scanned image"}
+        onLoad={() => {
+          setLoaded(true);
+          onLoad?.();
+        }}
+        onError={() => {
+          setHasError(true);
+          onError?.();
+        }}
+      />
+    </div>
   );
 };
 
