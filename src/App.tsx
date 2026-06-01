@@ -228,67 +228,148 @@ const compressImage = (input: string | File | Blob, maxWidth = 720, maxHeight = 
       resolve("");
       return;
     }
-    let srcUrl = "";
-    let isBlobUrl = false;
 
-    if (input instanceof File || input instanceof Blob) {
-      srcUrl = URL.createObjectURL(input);
-      isBlobUrl = true;
-    } else if (typeof input === "string") {
+    // Fast path: if the input is already a string and is a compressed data url, resolve instantly to prevent redundant work
+    if (typeof input === "string") {
       if (!input.startsWith("data:") && !input.startsWith("http") && !input.startsWith("blob:")) {
         resolve(input);
         return;
       }
-      srcUrl = input;
-    } else {
-      resolve("");
-      return;
+      if (input.startsWith("data:image/jpeg;base64,") && maxWidth === 720 && maxHeight === 960) {
+        resolve(input);
+        return;
+      }
     }
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let width = img.width;
-      let height = img.height;
+    const compressWithCanvas = (source: HTMLImageElement | ImageBitmap, originalWidth: number, originalHeight: number, revokeUrl?: string) => {
+      try {
+        let width = originalWidth;
+        let height = originalHeight;
 
-      if (width > height) {
-        if (width > maxWidth) {
-          height *= maxWidth / width;
-          width = maxWidth;
+        if (width > height) {
+          if (width > maxWidth) {
+            height *= maxWidth / width;
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width *= maxHeight / height;
+            height = maxHeight;
+          }
         }
-      } else {
-        if (height > maxHeight) {
-          width *= maxHeight / height;
-          height = maxHeight;
+
+        // 1. OffscreenCanvas (extremely fast async processing on modern Chromium browsers)
+        if (typeof OffscreenCanvas !== "undefined") {
+          const offscreen = new OffscreenCanvas(width, height);
+          const ctx = offscreen.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(source, 0, 0, width, height);
+            offscreen.convertToBlob({ type: "image/jpeg", quality: 0.42 }).then((blob) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+                if (source instanceof ImageBitmap) {
+                  try {
+                    source.close();
+                  } catch (e) {}
+                }
+                resolve(reader.result as string || "");
+              };
+              reader.readAsDataURL(blob);
+            }).catch(() => {
+              fallbackCanvas(source, width, height, revokeUrl);
+            });
+            return;
+          }
         }
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.fillStyle = "#FFFFFF";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, width, height);
-        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.42);
-        if (isBlobUrl) {
-          URL.revokeObjectURL(srcUrl);
-        }
-        resolve(compressedBase64);
-      } else {
-        if (isBlobUrl) {
-          URL.revokeObjectURL(srcUrl);
+
+        fallbackCanvas(source, width, height, revokeUrl);
+      } catch (err) {
+        console.error("Compression processing error:", err);
+        if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+        if (source instanceof ImageBitmap) {
+          try { source.close(); } catch (e) {}
         }
         resolve(typeof input === "string" ? input : "");
       }
     };
-    img.onerror = () => {
-      if (isBlobUrl) {
-        URL.revokeObjectURL(srcUrl);
+
+    const fallbackCanvas = (source: HTMLImageElement | ImageBitmap, width: number, height: number, revokeUrl?: string) => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(source, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.42);
+          if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+          if (source instanceof ImageBitmap) {
+            try { source.close(); } catch (e) {}
+          }
+          resolve(compressedBase64);
+        } else {
+          if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+          if (source instanceof ImageBitmap) {
+            try { source.close(); } catch (e) {}
+          }
+          resolve(typeof input === "string" ? input : "");
+        }
+      } catch (e) {
+        if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+        if (source instanceof ImageBitmap) {
+          try { source.close(); } catch (e) {}
+        }
+        resolve(typeof input === "string" ? input : "");
       }
-      resolve(typeof input === "string" ? input : "");
     };
-    img.src = srcUrl;
+
+    // 2. createImageBitmap (Hardware-accelerated non-blocking decoding on Chrome)
+    if (typeof window !== "undefined" && typeof window.createImageBitmap === "function" && (input instanceof File || input instanceof Blob)) {
+      window.createImageBitmap(input)
+        .then((bitmap) => {
+          compressWithCanvas(bitmap, bitmap.width, bitmap.height);
+        })
+        .catch((err) => {
+          console.warn("createImageBitmap fallback to standard loader:", err);
+          slowPath();
+        });
+      return;
+    }
+
+    const slowPath = () => {
+      let srcUrl = "";
+      let isBlobUrl = false;
+
+      if (input instanceof File || input instanceof Blob) {
+        srcUrl = URL.createObjectURL(input);
+        isBlobUrl = true;
+      } else if (typeof input === "string") {
+        srcUrl = input;
+      } else {
+        resolve("");
+        return;
+      }
+
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        compressWithCanvas(img, img.width, img.height, isBlobUrl ? srcUrl : undefined);
+      };
+      img.onerror = () => {
+        if (isBlobUrl) {
+          URL.revokeObjectURL(srcUrl);
+        }
+        resolve(typeof input === "string" ? input : "");
+      };
+      img.src = srcUrl;
+    };
+
+    slowPath();
   });
 };
 
