@@ -222,7 +222,7 @@ const stripDataUrls = (val: any): any => {
   return val;
 };
 
-const compressImage = (base64: string, maxWidth = 768, maxHeight = 1024): Promise<string> => {
+const compressImage = (base64: string, maxWidth = 720, maxHeight = 960): Promise<string> => {
   return new Promise((resolve) => {
     if (!base64 || !base64.startsWith("data:")) {
       resolve(base64);
@@ -252,7 +252,7 @@ const compressImage = (base64: string, maxWidth = 768, maxHeight = 1024): Promis
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.60));
+        resolve(canvas.toDataURL("image/jpeg", 0.42));
       } else {
         resolve(base64);
       }
@@ -1735,7 +1735,8 @@ export default function App() {
 
       const uploadWorker = async (item: any) => {
         try {
-          const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, item.src);
+          const optSrc = await compressImage(item.src, 720, 960);
+          const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, optSrc);
           let updatedImages: any[] = [];
           setImages((prev) => {
             updatedImages = prev.map((p) =>
@@ -1857,8 +1858,9 @@ export default function App() {
 
     const uploadWorker = async (item: any) => {
       try {
+        const optSrc = await compressImage(item.imageSrc, 720, 960);
         const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-        const url = await uploadBase64ToStorage(path, item.imageSrc);
+        const url = await uploadBase64ToStorage(path, optSrc);
 
         // Update local state history
         setScanHistory((prev) =>
@@ -3779,8 +3781,8 @@ export default function App() {
           img.crossOrigin = "anonymous";
           img.onload = () => {
             const canvas = document.createElement("canvas");
-            const MAX_WIDTH = 768;
-            const MAX_HEIGHT = 1024;
+            const MAX_WIDTH = 720;
+            const MAX_HEIGHT = 960;
             let width = img.width;
             let height = img.height;
 
@@ -3803,7 +3805,7 @@ export default function App() {
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               ctx.drawImage(img, 0, 0, width, height);
               // Cải thiện chất lượng ảnh để AI đọc chính xác hơn (đã tối ưu hoá dung lượng)
-              resolve(canvas.toDataURL("image/jpeg", 0.60));
+              resolve(canvas.toDataURL("image/jpeg", 0.42));
             } else {
               resolve(image.src);
             }
@@ -5199,6 +5201,7 @@ export default function App() {
                                   <>
                                     <img
                                       src={img.src}
+                                      loading="lazy"
                                       referrerPolicy="no-referrer"
                                       className="absolute inset-0 w-full h-full object-cover"
                                     />
@@ -6087,6 +6090,7 @@ export default function App() {
                               selectedResult.imageSrc ||
                               selectedResult.firebaseImageUrl
                             }
+                            loading="lazy"
                             referrerPolicy="no-referrer"
                             alt="Scanned form"
                             className="w-full h-auto object-contain block relative z-0"
