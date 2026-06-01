@@ -377,6 +377,123 @@ const setQuotaExceeded = () => {
 
 const sessionCacheMemory: Record<string, string> = {};
 
+interface CachedImageProps {
+  src: string;
+  className?: string;
+  alt?: string;
+  onLoad?: () => void;
+  onError?: () => void;
+  key?: string | number;
+}
+
+const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps) => {
+  const [displaySrc, setDisplaySrc] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const createdUrlRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (!src) {
+      setDisplaySrc("");
+      return;
+    }
+
+    if (src.startsWith("data:") || src.startsWith("blob:") || src.startsWith("http://localhost")) {
+      setDisplaySrc(src);
+      onLoad?.();
+      return;
+    }
+
+    let isMounted = true;
+    const cacheKey = "img_cache_" + src;
+
+    const loadCachedOrFetch = async () => {
+      try {
+        setLoading(true);
+        const cachedBlob = await localforage.getItem<Blob>(cacheKey);
+        if (cachedBlob && isMounted) {
+          const localUrl = URL.createObjectURL(cachedBlob);
+          if (createdUrlRef.current) {
+            URL.revokeObjectURL(createdUrlRef.current);
+          }
+          createdUrlRef.current = localUrl;
+          setDisplaySrc(localUrl);
+          setLoading(false);
+          onLoad?.();
+          return;
+        }
+
+        const response = await fetch(src, { referrerPolicy: "no-referrer" });
+        if (!response.ok) {
+          throw new Error("HTTP error " + response.status);
+        }
+        const blob = await response.blob();
+
+        try {
+          await localforage.setItem(cacheKey, blob);
+        } catch (e) {
+          console.warn("Failed to write to localforage cache", e);
+        }
+
+        if (isMounted) {
+          const localUrl = URL.createObjectURL(blob);
+          if (createdUrlRef.current) {
+            URL.revokeObjectURL(createdUrlRef.current);
+          }
+          createdUrlRef.current = localUrl;
+          setDisplaySrc(localUrl);
+        }
+      } catch (err) {
+        console.error("Failed to load and cache image:", err);
+        if (isMounted) {
+          setDisplaySrc(src);
+        }
+        onError?.();
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadCachedOrFetch();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [src]);
+
+  React.useEffect(() => {
+    return () => {
+      if (createdUrlRef.current) {
+        try {
+          URL.revokeObjectURL(createdUrlRef.current);
+        } catch (e) {}
+        createdUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  if (loading && !displaySrc) {
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100 p-1 text-center">
+        <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-1"></div>
+        <span className="text-[10px] text-slate-500 font-medium">Đang tải...</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={displaySrc || src}
+      referrerPolicy="no-referrer"
+      className={className}
+      alt={alt}
+      onLoad={onLoad}
+      onError={onError}
+    />
+  );
+};
+
 interface QueueImageCardProps {
   img: any;
   activeUploadingIds: string[];
@@ -413,10 +530,8 @@ const QueueImageCard = React.memo(({
       >
         {img.src || img.firebaseImageUrl ? (
           <>
-            <img
+            <CachedImage
               src={img.src || img.firebaseImageUrl}
-              loading="lazy"
-              referrerPolicy="no-referrer"
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
             />
             {isUploading && (
@@ -6188,14 +6303,12 @@ export default function App() {
                           className="relative group bg-white shadow-sm inline-block transition-all duration-200 origin-top"
                           style={{ width: `${imageZoomLevel * 100}%` }}
                         >
-                          <img
+                          <CachedImage
                             key={selectedResult.id}
                             src={
                               selectedResult.imageSrc ||
                               selectedResult.firebaseImageUrl
                             }
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
                             alt="Scanned form"
                             className="w-full h-auto object-contain block relative z-0"
                             onLoad={() => {
