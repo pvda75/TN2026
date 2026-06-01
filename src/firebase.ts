@@ -17,6 +17,12 @@ try {
 
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+try {
+  storage.maxUploadRetryTime = 5000; // 5 seconds fail-fast
+  storage.maxOperationRetryTime = 5000; // 5 seconds fail-fast
+} catch (e) {
+  console.error("Failed to set storage retry times:", e);
+}
 export const googleProvider = new GoogleAuthProvider();
 
 export const uploadBase64ToStorage = async (path: string, base64: string, metadata?: UploadMetadata): Promise<string> => {

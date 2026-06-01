@@ -204,7 +204,7 @@ const getDefaultKey = (structureId: string, structures: ExamStructure[]) => {
 const stripDataUrls = (val: any): any => {
   if (val === null || val === undefined) return val;
   if (typeof val === "string") {
-    if (val.startsWith("data:")) {
+    if (val.startsWith("data:") && val.length > 100000) {
       return "";
     }
     return val;
@@ -1722,8 +1722,10 @@ export default function App() {
     if (globalOMRConfig) {
       syncObj.globalOMRConfig = globalOMRConfig;
     }
-    if (globalOMRTemplateImage && !globalOMRTemplateImage.startsWith("data:")) {
-      syncObj.globalOMRTemplateImage = globalOMRTemplateImage;
+    if (globalOMRTemplateImage) {
+      if (!globalOMRTemplateImage.startsWith("data:") || globalOMRTemplateImage.length <= 100000) {
+        syncObj.globalOMRTemplateImage = globalOMRTemplateImage;
+      }
     }
     const sortedSyncObj: any = {};
     Object.keys(syncObj)
@@ -1757,8 +1759,11 @@ export default function App() {
         updatedAt: now,
       };
       if (globalOMRConfig) pushData.globalOMRConfig = globalOMRConfig;
-      if (globalOMRTemplateImage && !globalOMRTemplateImage.startsWith("data:"))
-        pushData.globalOMRTemplateImage = globalOMRTemplateImage;
+      if (globalOMRTemplateImage) {
+        if (!globalOMRTemplateImage.startsWith("data:") || globalOMRTemplateImage.length <= 100000) {
+          pushData.globalOMRTemplateImage = globalOMRTemplateImage;
+        }
+      }
 
       const cleanPushData = stripDataUrls(JSON.parse(JSON.stringify(pushData)));
 
@@ -1789,6 +1794,7 @@ export default function App() {
 
   useEffect(() => {
     if (!globalOMRTemplateImage || !globalOMRTemplateImage.startsWith("data:")) return;
+    if (globalOMRTemplateImage.length <= 100000) return; // already in fallback form, skip upload
 
     let isCancelled = false;
     const uploadTemplate = async () => {
@@ -1800,7 +1806,17 @@ export default function App() {
           setSafeStorage("omr_template_calibration_img", url);
         }
       } catch (e) {
-        console.error("Failed to upload global OMR template image:", e);
+        console.error("Failed to upload global OMR template image to Firebase Storage:", e);
+        // Fallback: Compress the image heavily to make it under 100KB so it can sync directly via Firestore
+        try {
+          const compressed = await compressImage(globalOMRTemplateImage, 360, 510);
+          if (!isCancelled) {
+            setGlobalOMRTemplateImage(compressed);
+            setSafeStorage("omr_template_calibration_img", compressed);
+          }
+        } catch (compressErr) {
+          console.error("Failed to compress template image fallback:", compressErr);
+        }
       }
     };
     uploadTemplate();
