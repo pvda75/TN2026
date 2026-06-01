@@ -277,6 +277,7 @@ export interface ScannedImage {
   examName?: string;
   classId?: string;
   customConfig?: OMRConfig;
+  firebaseImageUrl?: string;
 }
 
 let firestoreQuotaExceeded = false;
@@ -1364,13 +1365,20 @@ export default function App() {
             // Preserve local high-res image src and firebaseImageUrl if present locally
             const localItem = prevHistory.find((p) => p.id === data.id);
             if (localItem) {
-              if (localItem.imageSrc && !data.imageSrc) {
+              const hasUrl = data.firebaseImageUrl || localItem.firebaseImageUrl;
+              if (localItem.imageSrc && !hasUrl) {
                 data.imageSrc = localItem.imageSrc;
                 data.originalImageSrc = localItem.originalImageSrc;
+              } else {
+                data.imageSrc = "";
+                data.originalImageSrc = "";
               }
               if (localItem.firebaseImageUrl && !data.firebaseImageUrl) {
                 data.firebaseImageUrl = localItem.firebaseImageUrl;
               }
+            } else if (data.firebaseImageUrl) {
+              data.imageSrc = "";
+              data.originalImageSrc = "";
             }
             nextHistory.push(data);
           });
@@ -1604,27 +1612,26 @@ export default function App() {
                   ) {
                     return local;
                   }
+                  const hasUrl = rmt.firebaseImageUrl || local.firebaseImageUrl || "";
                   return {
                     ...rmt,
-                    firebaseImageUrl: rmt.firebaseImageUrl || local.firebaseImageUrl || "",
-                    src: rmt.src || rmt.firebaseImageUrl || local.firebaseImageUrl || local.src || "",
+                    firebaseImageUrl: hasUrl,
+                    src: hasUrl ? hasUrl : (rmt.src || local.src || ""),
                     result:
                       local.result || rmt.result
                         ? {
                             ...(rmt.result || {}),
                             ...(local.result || {}),
-                            imageSrc:
-                              local.result?.imageSrc || rmt.result?.imageSrc || local.firebaseImageUrl || rmt.firebaseImageUrl || "",
-                            originalImageSrc:
-                              local.result?.originalImageSrc ||
-                              rmt.result?.originalImageSrc || "",
+                            imageSrc: hasUrl ? hasUrl : (local.result?.imageSrc || rmt.result?.imageSrc || ""),
+                            originalImageSrc: hasUrl ? "" : (local.result?.originalImageSrc || rmt.result?.originalImageSrc || ""),
                           }
                         : rmt.result,
                   };
                 }
+                const hasRmtUrl = rmt.firebaseImageUrl || "";
                 return {
                   ...rmt,
-                  src: rmt.src || rmt.firebaseImageUrl || "",
+                  src: hasRmtUrl ? hasRmtUrl : (rmt.src || ""),
                 };
               });
             const localOnly = prev.filter(
@@ -1752,7 +1759,16 @@ export default function App() {
                 ? ({
                     ...p,
                     firebaseImageUrl: url,
-                    src: p.src || url,
+                    src: url,
+                    processedDataUrl: "",
+                    warpedDataUrl: "",
+                    result: p.result
+                      ? {
+                          ...p.result,
+                          imageSrc: "",
+                          originalImageSrc: "",
+                        }
+                      : p.result,
                   } as any)
                 : p,
             );
@@ -1975,11 +1991,19 @@ export default function App() {
                 p3Score += q.points || 0;
               });
             }
+            const cleaned = { ...item };
+            if (cleaned.firebaseImageUrl) {
+              cleaned.imageSrc = "";
+              cleaned.originalImageSrc = "";
+              if (cleaned.result) {
+                cleaned.result = { ...cleaned.result, imageSrc: "", originalImageSrc: "" };
+              }
+            }
             return {
-              ...item,
+              ...cleaned,
               score: p1Score + p2Score + p3Score,
               resultDetails: details,
-              timestamp: item.timestamp ? new Date(item.timestamp) : new Date(),
+              timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
             };
           });
           setScanHistory((prev) => {
@@ -2019,6 +2043,20 @@ export default function App() {
         const savedImages =
           await localforage.getItem<ScannedImage[]>(`autograde_images_${currentUserId}`);
         if (isMounted && savedImages && Array.isArray(savedImages)) {
+          const cleanedSavedImages = savedImages.map((s) => {
+            if (s.firebaseImageUrl) {
+              const copy = { ...s };
+              copy.src = "";
+              copy.processedDataUrl = "";
+              copy.warpedDataUrl = "";
+              if (copy.result) {
+                copy.result = { ...copy.result, imageSrc: "", originalImageSrc: "" };
+              }
+              return copy as ScannedImage;
+            }
+            return s;
+          });
+
           setImages((prev) => {
             if (activeQueueUserId && activeQueueUserId !== currentUserId) {
               return prev;
@@ -2026,7 +2064,7 @@ export default function App() {
             // If online and we already have active items from Firestore, trust them as the source of truth
             if (initialQueueFetchDone.current && prev.length > 0) {
               return prev.map((p) => {
-                const s = savedImages.find((item) => item.id === p.id);
+                const s = cleanedSavedImages.find((item) => item.id === p.id);
                 if (s) {
                   return {
                     ...p,
@@ -2047,12 +2085,12 @@ export default function App() {
             }
 
             if (prev.length === 0) {
-              return savedImages;
+              return cleanedSavedImages;
             }
 
             // Merge logic if some are already present but we are not fully synced yet
             const merged = [...prev];
-            for (const s of savedImages) {
+            for (const s of cleanedSavedImages) {
               const idx = merged.findIndex((m) => m.id === s.id);
               if (idx === -1) {
                 // Only merge item if it is newly captured or offline-unsynced on this device
@@ -2126,21 +2164,27 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoadedRef.current || isLoggingOutRef.current || !currentUserId) return;
-    try {
-      localforage.setItem(`autograde_history_${currentUserId}`, scanHistory);
-    } catch (err) {
-      console.error("Failed to save history:", err);
-    }
+    const timeout = setTimeout(() => {
+      try {
+        localforage.setItem(`autograde_history_${currentUserId}`, scanHistory);
+      } catch (err) {
+        console.error("Failed to save history:", err);
+      }
+    }, 1500);
+    return () => clearTimeout(timeout);
   }, [scanHistory, currentUserId]);
 
   useEffect(() => {
     if (!isLoadedRef.current || isLoggingOutRef.current || !currentUserId) return;
     if (activeQueueUserId && activeQueueUserId !== currentUserId) return;
-    try {
-      localforage.setItem(`autograde_images_${currentUserId}`, images);
-    } catch (err) {
-      console.error("Failed to save images:", err);
-    }
+    const timeout = setTimeout(() => {
+      try {
+        localforage.setItem(`autograde_images_${currentUserId}`, images);
+      } catch (err) {
+        console.error("Failed to save images:", err);
+      }
+    }, 1500);
+    return () => clearTimeout(timeout);
   }, [images, currentUserId, activeQueueUserId]);
 
   const webcamRef = useRef<Webcam>(null);
