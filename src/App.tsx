@@ -888,6 +888,69 @@ export default function App() {
     return getSafeStorage("app_current_user_id") || "";
   });
 
+  const [localStorageMode, setLocalStorageMode] = useState<boolean>(() => {
+    return localStorage.getItem("local_storage_mode") === "true";
+  });
+  const [localServerUrl, setLocalServerUrl] = useState<string>(() => {
+    return localStorage.getItem("local_server_url") || "http://localhost:3000";
+  });
+  const [localServerAvailable, setLocalServerAvailable] = useState<boolean>(false);
+
+  // Auto detect local storage server capability on mount
+  useEffect(() => {
+    const detectLocalServer = async () => {
+      try {
+        const res = await fetch("/api/check-local");
+        const data = await res.json();
+        if (data.runningLocally) {
+          setLocalServerAvailable(true);
+          setLocalStorageMode(true);
+          localStorage.setItem("local_storage_mode", "true");
+        }
+      } catch (err) {
+        try {
+          const res = await fetch(`${window.location.origin}/api/check-local`);
+          const data = await res.json();
+          if (data.runningLocally) {
+            setLocalServerAvailable(true);
+            setLocalServerUrl(window.location.origin);
+            localStorage.setItem("local_server_url", window.location.origin);
+            setLocalStorageMode(true);
+            localStorage.setItem("local_storage_mode", "true");
+          }
+        } catch (e) {
+          setLocalServerAvailable(false);
+        }
+      }
+    };
+    detectLocalServer();
+  }, []);
+
+  // Safe wrapper for uploading images to either local server or firebase storage
+  const uploadImageFile = async (pathStr: string, base64: string): Promise<string> => {
+    if (localStorageMode || localServerAvailable) {
+      try {
+        const sanitizedFilename = pathStr.replace(/[^a-zA-Z0-9_\.]/g, "_");
+        const targetUrl = `${localServerUrl.replace(/\/$/, "")}/api/upload-local`;
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: sanitizedFilename, base64 }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const fullLocalUrl = `${localServerUrl.replace(/\/$/, "")}${data.url}`;
+          return fullLocalUrl;
+        } else {
+          throw new Error(`Upload fail status ${response.status}`);
+        }
+      } catch (e) {
+        console.warn("Upload to local storage failed, falling back to Firebase Storage:", e);
+      }
+    }
+    return await uploadBase64ToStorage(pathStr, base64);
+  };
+
   useEffect(() => {
     if (currentUserId) {
       setActiveQueueUserId(currentUserId);
@@ -1963,7 +2026,7 @@ export default function App() {
     const uploadTemplate = async () => {
       try {
         const path = `templates/global_omr_template_${currentUserId || "default"}.jpg`;
-        const url = await uploadBase64ToStorage(path, globalOMRTemplateImage);
+        const url = await uploadImageFile(path, globalOMRTemplateImage);
         if (!isCancelled) {
           setGlobalOMRTemplateImage(url);
           setSafeStorage("omr_template_calibration_img", url);
@@ -2225,7 +2288,7 @@ export default function App() {
       const uploadWorker = async (item: any) => {
         try {
           const optSrc = await compressImage(item.src, 720, 960);
-          const url = await uploadBase64ToStorage(`${queueDocId}/${item.id}.jpg`, optSrc);
+          const url = await uploadImageFile(`${queueDocId}/${item.id}.jpg`, optSrc);
           let updatedImages: any[] = [];
           setImages((prev) => {
             updatedImages = prev.map((p) =>
@@ -2355,7 +2418,7 @@ export default function App() {
       try {
         const optSrc = await compressImage(item.imageSrc, 720, 960);
         const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-        const url = await uploadBase64ToStorage(path, optSrc);
+        const url = await uploadImageFile(path, optSrc);
 
         // Update local state history
         setScanHistory((prev) =>
@@ -5400,6 +5463,93 @@ export default function App() {
                             để tiết kiệm dung lượng.
                           </li>
                         </ul>
+                      </div>
+                    </div>
+
+                    <div className="mb-6 bg-white border border-slate-200 rounded-2xl p-4 shadow-none">
+                      <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Bộ Lưu Trữ Ảnh Cục Bộ (Đồng bộ với Online)
+                        </h3>
+                        {localServerAvailable && (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Đang kết nối localhost
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <label className="text-xs font-bold text-slate-700 block mb-1">
+                              Chế độ lưu trữ ảnh trực tiếp tại máy tính
+                            </label>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                              Khi bật, toàn bộ ảnh quét sẽ được lưu thẳng vào thư mục cục bộ của máy tính này (qua máy chủ Node.js) thay vì tải lên Cloud. Điều này giúp nạp ảnh <strong>tức thời (0-5ms)</strong> và không lo hết dung lượng Firebase, trong khi kết quả điểm số vẫn đồng bộ online bình thường!
+                            </p>
+                          </div>
+                          <div className="flex items-center h-10">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newVal = !localStorageMode;
+                                setLocalStorageMode(newVal);
+                                localStorage.setItem("local_storage_mode", newVal ? "true" : "false");
+                              }}
+                              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                localStorageMode ? "bg-indigo-600" : "bg-slate-200"
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                  localStorageMode ? "translate-x-5" : "translate-x-0"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+
+                        {localStorageMode && (
+                          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-3 items-end">
+                            <div className="flex-1">
+                              <label className="text-xs font-bold text-slate-700 block mb-1">
+                                Địa chỉ Máy chủ Lưu ảnh cục bộ (IP):
+                              </label>
+                              <input
+                                type="text"
+                                className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                                placeholder="http://localhost:3000"
+                                value={localServerUrl}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setLocalServerUrl(val);
+                                  localStorage.setItem("local_server_url", val);
+                                }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const pingUrl = `${localServerUrl.replace(/\/$/, "")}/api/check-local`;
+                                  const res = await fetch(pingUrl);
+                                  const data = await res.json();
+                                  if (data.runningLocally) {
+                                    alert("Đã kết nối thành công với Máy chủ cục bộ!\nThư mục lưu trữ: " + data.storagePath);
+                                  } else {
+                                    alert("Đã nhận được phản hồi nhưng máy chủ không có chức năng lưu trữ cục bộ.");
+                                  }
+                                } catch (err) {
+                                  alert("Không thể kết nối đến Máy chủ tại: " + localServerUrl + "\nHãy kiểm tra xem bạn đã khởi chạy lệnh mở app trên máy tính đó chưa.");
+                                }
+                              }}
+                              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-1.5 px-3 rounded-lg text-xs transition-colors whitespace-nowrap border border-indigo-200"
+                            >
+                              Kiểm tra kết nối
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
