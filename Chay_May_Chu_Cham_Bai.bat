@@ -1,59 +1,107 @@
 @echo off
-title MAY CHU CHAM BAI TRAC NGHIEM - LOCAL STORAGE SERVER
-color 0A
+title KIEM TRA HE THONG - MAY CHU CHAM THI TRAC NGHIEM
+color 0E
+cls
+
 echo =====================================================================
 echo    MAY CHU TRAC NGHIEM - HE THONG CHUAN HOA & LUU TRU ANH CUC BO
 echo =====================================================================
 echo.
+echo [+] Dang kiem tra moi truong may tinh cua ban...
+echo.
 
-:: Check Node.js installation
+:: Checking node.js in path via where
+where node >nul 2>&1
+if errorlevel 1 goto NoNode
+
+:: Double check with node -v
 node -v >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [LOI] May tinh cua ban chua cai dat Node.js!
-    echo Node.js la bat buoc de dung va lam may chu luu tru anh cuc bo tren PC.
-    echo.
-    echo Vui long truy cap: https://nodejs.org/
-    echo Tai ban "LTS" moi nhat ve va mo cai dat bang 1 cu click.
-    echo Sau khi cai dat xong, vui long mo lai file nay.
-    echo.
-    pause
-    exit
-)
+if errorlevel 1 goto NoNode
 
+:: Node.js found! Change color to green and start the application setup
+color 0A
+cls
+echo =====================================================================
+echo    MAY CHU TRAC NGHIEM - HE THONG CHUAN HOA & LUU TRU ANH CUC BO
+echo =====================================================================
+echo.
 echo [+] Da xac nhan Node.js co san tren may tinh.
 echo [+] Dang chuan bi khoi dong he thong, vui long cho...
 echo.
 
-:: Install dependencies if node_modules doesn't exist
+:: Install dependencies if node_modules does not exist
 if not exist node_modules (
-    echo [+] Dang tai cac thu vien bo tro can thiet (Chi can chay lan dau)...
-    call npm install --omit=dev
-    if %errorlevel% neq 0 (
-        echo [LOI] Khong the tai thu vien. Vui long kiem tra ket noi Internet.
-        pause
-        exit
-    )
+    echo [+] Dang tai va cai dat cac thu vien bo tro (Chi can chay lan dau)...
+    echo [*] Luu y: Vui long giu ket noi Internet on dinh trong giay lat.
+    call npm install
+    if errorlevel 1 goto InstallError
 )
 
 :: Run build if dist folder doesn't exist
 if not exist dist (
-    echo [+] Dang build ung dung de chay offline toi uu...
+    echo [+] Dang khoi tao ban du lieu build toi uu...
     call npm run build
+    if errorlevel 1 goto BuildError
 )
 
 echo.
 echo =====================================================================
 echo  [*] MAY CHU DANG HOAT DONG!
-echo  [*] Dia chi truy cap tren may nay: http://localhost:3000
-echo  [*] Dia chi de ket noi cac may khac trong mang LAN:
-echo      (Vui long xem IP cua may nay trong Settings mang cuc bo cua ban)
+echo  [*] Dia chi de ban truy cap tren may nay: http://localhost:3000
+echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: Automatically open browser after 3 seconds
-timeout /t 3 /nobreak >nul
+:: Auto open main page in default browser
+timeout /t 2 /nobreak >nul
 start http://localhost:3000
 
-:: Run the production server
-npm run start
+:: Execute node server
+call npm run start
 pause
+exit
+
+:NoNode
+color 0C
+cls
+echo =====================================================================
+echo  [LOI NGHIEM TRONG] MAY TINH CUA BAN CHUA CAI DAT NODE.JS!
+echo =====================================================================
+echo.
+echo Truoc khi su dung luu tru anh offline phia server cuc bo (Local Storage),
+echo may tinh cua ban bat buoc phai co moi truong chay Node.js.
+echo.
+echo HUONG DAN KHAC PHUC CAN THIET (CHI CAN LAM 1 LAN DUY NHAT):
+echo ---------------------------------------------------------------------
+echo  Buoc 1: Mo trinh duyet va truy cap vao trang chu Node.js tai:
+echo           https://nodejs.org/
+echo.
+echo  Buoc 2: Nhan tai ve phien ban ghi chu "LTS" (Safe & Recommended).
+echo.
+echo  Buoc 3: Mo tep tin vua tai ve (dang .msi) de cai dat tren Windows.
+echo         (Bam "Next" lien tiep cho den khi thay nut "Finish").
+echo.
+echo  Buoc 4: Sau khi hoan tat cai dat, hay chay lai file .bat nay!
+echo ---------------------------------------------------------------------
+echo.
+echo [*] Nhan nut BAT KY tren ban phim de tu dong mo link tai Node.js...
+pause
+start https://nodejs.org/
+exit
+
+:InstallError
+color 0C
+echo.
+echo [LOI] Qua trinh nap va cai dat thu vien gap su co (npm install gap loi).
+echo Vui long kiem tra lai ket noi Internet tren may va chay lai file .bat nay.
+echo.
+pause
+exit
+
+:BuildError
+color 0C
+echo.
+echo [LOI] Qua trinh dong goi ung dung co loi xay ra (npm run build gap loi).
+echo.
+pause
+exit

@@ -2,7 +2,7 @@
 cd "$(dirname "$0")"
 clear
 echo "====================================================================="
-echo "   MAY CHU TRAC NGHIEM - HE THONG CHUAN HOA & LUU TRU ANH CUC BO     "
+echo "   MAY CHU TRAC NGHIEM - HE THONG CHUAN HOA VA LUU TRU ANH CUC BO     "
 echo "====================================================================="
 echo ""
 
@@ -26,7 +26,7 @@ echo ""
 # Install dependencies if node_modules doesn't exist
 if [ ! -d "node_modules" ]; then
     echo "[+] Dang tai cac thu vien bo tro can thiet (Chi can chay lan dau)..."
-    npm install --omit=dev
+    npm install
 fi
 
 # Run build if dist folder doesn't exist
