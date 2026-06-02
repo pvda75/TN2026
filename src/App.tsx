@@ -1845,8 +1845,12 @@ export default function App() {
           }
           return true; // Nếu không tìm thấy thông tin user cụ thể, mặc định hiển thị
         } else {
-          // Đối với standard USER: chỉ được phép nhìn thấy và chấm ảnh của chính họ
-          return img.userId === currentUserId;
+          // Đối với standard USER: chỉ được phép nhìn thấy và chấm ảnh của chính họ, ảnh chưa có userId, hoặc ảnh do tài khoản quản trị (ADMIN) tải lên
+          if (!img.userId) return true;
+          if (img.userId === currentUserId) return true;
+          const imageOwner = appUsers.find((u) => u.id === img.userId || u.username === img.userId);
+          const isOwnerAdmin = img.userId === "admin" || imageOwner?.role === "ADMIN";
+          return isOwnerAdmin;
         }
       })
       .sort((a, b) => {
@@ -2730,19 +2734,25 @@ export default function App() {
                       timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(0),
                     };
                   });
-                  // Filter by role: Admin sees everything, standard user sees their own
+                  // Filter by role: Admin sees everything, standard user sees their own + items uploaded by admins
                   const filteredHistory = parsedHistory.filter((item: any) => {
                     if (userRole === "ADMIN") return true;
-                    return !item.userId || item.userId === currentUserId;
+                    if (!item.userId || item.userId === currentUserId || item.userId === "admin") return true;
+                    const usersList = dbData.users || appUsers;
+                    const owner = usersList.find((u: any) => u.id === item.userId || u.username === item.userId);
+                    return owner?.role === "ADMIN";
                   });
                   lastSyncedHistoryRef.current = filteredHistory;
                   setScanHistory(filteredHistory);
                 }
                 if (dbData.images && Array.isArray(dbData.images)) {
-                  // Filter by role: Admin sees everything, standard user sees their own
+                  // Filter by role: Admin sees everything, standard user sees their own + admin-uploaded images
                   const filteredImages = dbData.images.filter((img: any) => {
                     if (userRole === "ADMIN") return true;
-                    return !img.userId || img.userId === currentUserId;
+                    if (!img.userId || img.userId === currentUserId || img.userId === "admin") return true;
+                    const usersList = dbData.users || appUsers;
+                    const owner = usersList.find((u: any) => u.id === img.userId || u.username === img.userId);
+                    return owner?.role === "ADMIN";
                   });
                   lastSyncedImagesRef.current = filteredImages;
                   setImages(filteredImages);
@@ -3116,7 +3126,10 @@ export default function App() {
             });
             const filteredHistory = parsedHistory.filter((item: any) => {
               if (userRole === "ADMIN") return true;
-              return !item.userId || item.userId === currentUserId;
+              if (!item.userId || item.userId === currentUserId || item.userId === "admin") return true;
+              const usersList = dbData.users || appUsers;
+              const owner = usersList.find((u: any) => u.id === item.userId || u.username === item.userId);
+              return owner?.role === "ADMIN";
             });
             setScanHistory((prev) => {
               const prevStr = JSON.stringify(prev.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
@@ -3130,7 +3143,10 @@ export default function App() {
           if (dbData.images && Array.isArray(dbData.images)) {
             const filteredImages = dbData.images.filter((img: any) => {
               if (userRole === "ADMIN") return true;
-              return !img.userId || img.userId === currentUserId;
+              if (!img.userId || img.userId === currentUserId || img.userId === "admin") return true;
+              const usersList = dbData.users || appUsers;
+              const owner = usersList.find((u: any) => u.id === img.userId || u.username === img.userId);
+              return owner?.role === "ADMIN";
             });
             setImages((prev) => {
               const prevStr = JSON.stringify(prev);
@@ -3585,6 +3601,7 @@ export default function App() {
                status: "pending",
                examName: gradeExamName,
                classId: activeClass,
+               userId: currentUserId || undefined,
              },
            ]);
          }).catch(() => {
@@ -3597,12 +3614,13 @@ export default function App() {
                status: "pending",
                examName: gradeExamName,
                classId: activeClass,
+               userId: currentUserId || undefined,
              },
            ]);
          });
        }
     }
-  }, [webcamRef, gradeExamName, activeClass]);
+  }, [webcamRef, gradeExamName, activeClass, currentUserId]);
 
   const toggleAutoScan = () => {
     if (isAutoScanning) {
@@ -3642,6 +3660,7 @@ export default function App() {
                     status: "pending",
                     examName: gradeExamName,
                     classId: activeClass,
+                    userId: currentUserId || undefined,
                   });
                 }
               } catch (err) {
@@ -3937,6 +3956,7 @@ export default function App() {
           status: "pending",
           examName: gradeExamName,
           classId: activeClass,
+          userId: item.userId || currentUserId || undefined,
         };
       });
 
