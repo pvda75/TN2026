@@ -489,8 +489,10 @@ const CachedImage = ({ src, className, alt, onLoad, onError, fallbackSrc }: Cach
   const [displaySrc, setDisplaySrc] = useState<string>(initialUrl);
   const [loaded, setLoaded] = useState<boolean>(!!initialUrl);
   const [hasError, setHasError] = useState<boolean>(false);
+  const [triedFallback, setTriedFallback] = useState<boolean>(false);
 
   useEffect(() => {
+    setTriedFallback(false);
     if (!src) {
       setDisplaySrc("");
       setLoaded(false);
@@ -614,8 +616,14 @@ const CachedImage = ({ src, className, alt, onLoad, onError, fallbackSrc }: Cach
           onLoad?.();
         }}
         onError={() => {
-          setHasError(true);
-          onError?.();
+          if (fallbackSrc && !triedFallback && (displaySrc || src) !== fallbackSrc) {
+            setTriedFallback(true);
+            setDisplaySrc(fallbackSrc);
+            setLoaded(false);
+          } else {
+            setHasError(true);
+            onError?.();
+          }
         }}
       />
     </div>
@@ -660,6 +668,7 @@ const QueueImageCard = React.memo(({
           <>
             <CachedImage
               src={img.src || img.firebaseImageUrl}
+              fallbackSrc={img.firebaseImageUrl || img.src}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
             />
             {isUploading && (
