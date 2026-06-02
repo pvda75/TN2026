@@ -951,7 +951,8 @@ export default function App() {
   }, []);
 
   // Safe wrapper for uploading images to either local server or firebase storage
-  const uploadImageFile = async (pathStr: string, base64: string): Promise<string> => {
+  const uploadImageFile = async (pathStr: string, base64: string, examName?: string): Promise<string> => {
+    let localUrl = "";
     if (localStorageMode || localServerAvailable) {
       try {
         const sanitizedFilename = pathStr.replace(/[^a-zA-Z0-9_\.]/g, "_");
@@ -959,20 +960,33 @@ export default function App() {
         const response = await fetch(targetUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: sanitizedFilename, base64 }),
+          body: JSON.stringify({ filename: sanitizedFilename, base64, examName }),
         });
         if (response.ok) {
           const data = await response.json();
-          const fullLocalUrl = `${localServerUrl.replace(/\/$/, "")}${data.url}`;
-          return fullLocalUrl;
+          localUrl = `${localServerUrl.replace(/\/$/, "")}${data.url}`;
         } else {
-          throw new Error(`Upload fail status ${response.status}`);
+          console.warn(`Local upload failed with status ${response.status}`);
         }
       } catch (e) {
-        console.warn("Upload to local storage failed, falling back to Firebase Storage:", e);
+        console.warn("Upload to local storage failed:", e);
       }
     }
-    return await uploadBase64ToStorage(pathStr, base64);
+
+    // Always attempt cloud upload in the background so administrators and other accounts can access the images
+    try {
+      const cloudUrl = await uploadBase64ToStorage(pathStr, base64);
+      if (cloudUrl) {
+        // We prefer to return the cloud URL for storage in Firestore database,
+        // which serves as the perfect fallback for remote admins. Locally, CachedImage
+        // will still resolve path structures locally.
+        return cloudUrl;
+      }
+    } catch (e) {
+      console.warn("Upload to Firebase Storage failed, falling back to local URL:", e);
+    }
+
+    return localUrl || "";
   };
 
   useEffect(() => {
@@ -2312,7 +2326,7 @@ export default function App() {
       const uploadWorker = async (item: any) => {
         try {
           const optSrc = await compressImage(item.src, 720, 960);
-          const url = await uploadImageFile(`${queueDocId}/${item.id}.jpg`, optSrc);
+          const url = await uploadImageFile(`${queueDocId}/${item.id}.jpg`, optSrc, item.examName);
           let updatedImages: any[] = [];
           setImages((prev) => {
             updatedImages = prev.map((p) =>
@@ -2442,7 +2456,7 @@ export default function App() {
       try {
         const optSrc = await compressImage(item.imageSrc, 720, 960);
         const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-        const url = await uploadImageFile(path, optSrc);
+        const url = await uploadImageFile(path, optSrc, item.examName);
 
         // Update local state history
         setScanHistory((prev) =>
@@ -3892,9 +3906,8 @@ export default function App() {
     // Build key local URL if running on local storage
     let preferredUrl = url;
     if ((localStorageMode || localServerAvailable) && item.id) {
-      const rawPath = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-      const sanitizedFilename = rawPath.replace(/[^a-zA-Z0-9_\.]/g, "_");
-      preferredUrl = `${localServerUrl.replace(/\/$/, "")}/local_storage/images/${sanitizedFilename}`;
+      const examFolder = item.examName || "unknown_exam";
+      preferredUrl = `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${item.id}.jpg`;
     }
 
     img.src = preferredUrl;
@@ -6641,9 +6654,8 @@ export default function App() {
                             src={
                               (() => {
                                 if ((localStorageMode || localServerAvailable) && selectedResult.id) {
-                                  const rawPath = `scans/${selectedResult.examName || "unknown_exam"}/${selectedResult.sessionId || "unknown_session"}/${selectedResult.id}.jpg`;
-                                  const sanitizedFilename = rawPath.replace(/[^a-zA-Z0-9_\.]/g, "_");
-                                  return `${localServerUrl.replace(/\/$/, "")}/local_storage/images/${sanitizedFilename}`;
+                                  const examFolder = selectedResult.examName || "unknown_exam";
+                                  return `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${selectedResult.id}.jpg`;
                                 }
                                 return selectedResult.imageSrc || selectedResult.firebaseImageUrl;
                               })()
