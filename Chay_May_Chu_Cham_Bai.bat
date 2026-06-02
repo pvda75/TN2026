@@ -1,4 +1,7 @@
 @echo off
+:: Di chuyen den thu muc chua file bat de chay dung cac tap tin can thiet
+cd /d "%~dp0"
+
 title KIEM TRA HE THONG - MAY CHU CHAM THI TRAC NGHIEM
 color 0E
 cls
@@ -31,7 +34,7 @@ echo.
 
 :: Install dependencies if node_modules does not exist
 if not exist node_modules (
-    echo [+] Dang tai va cai dat cac thu vien bo tro (Chi can chay lan dau)...
+    echo [+] Dang tai va cai dat cac thu vien bo tro [Chi can chay lan dau]...
     echo [*] Luu y: Vui long giu ket noi Internet on dinh trong giay lat.
     call npm install
     if errorlevel 1 goto InstallError
@@ -76,7 +79,7 @@ echo ---------------------------------------------------------------------
 echo  Buoc 1: Mo trinh duyet va truy cap vao trang chu Node.js tai:
 echo           https://nodejs.org/
 echo.
-echo  Buoc 2: Nhan tai ve phien ban ghi chu "LTS" (Safe & Recommended).
+echo  Buoc 2: Nhan tai ve phien ban ghi chu "LTS" (An toan va khuyen dung).
 echo.
 echo  Buoc 3: Mo tep tin vua tai ve (dang .msi) de cai dat tren Windows.
 echo         (Bam "Next" lien tiep cho den khi thay nut "Finish").
