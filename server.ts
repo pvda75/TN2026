@@ -31,7 +31,7 @@ async function startServer() {
   // API upload base64 to local disk instead of Firebase Storage
   app.post("/api/upload-local", async (req, res) => {
     try {
-      const { filename, base64, examName } = req.body;
+      const { filename, base64, examName, className } = req.body;
       if (!filename || !base64) {
         return res.status(400).json({ error: "Missing filename or base64" });
       }
@@ -42,27 +42,39 @@ async function startServer() {
         base64Data = base64.split(",")[1];
       }
 
-      // Clean up exam name to make it a safe directory name (Vietnamese accents are fine, but path traversal symbols must be eliminated)
+      // Clean up exam name and class name to make safe directory names (Vietnamese accents are fine, but path traversal symbols must be eliminated)
       const sanitizedExamName = examName 
         ? examName.replace(/[\/\?\<\>\:\*\|\"\\]/g, "_").trim() 
         : "";
 
-      const targetFolder = sanitizedExamName 
-        ? path.join(localStorageDir, sanitizedExamName) 
-        : imagesDir;
+      const sanitizedClassName = className 
+        ? className.replace(/[\/\?\<\>\:\*\|\"\\]/g, "_").trim() 
+        : "";
+
+      const safeFilename = path.basename(filename);
+      let targetFolder = localStorageDir;
+      let relativeUrl = "/local_storage";
+
+      if (sanitizedExamName && sanitizedClassName) {
+        targetFolder = path.join(localStorageDir, sanitizedExamName, sanitizedClassName);
+        relativeUrl = `/local_storage/${encodeURIComponent(sanitizedExamName)}/${encodeURIComponent(sanitizedClassName)}/${safeFilename}`;
+      } else if (sanitizedExamName) {
+        targetFolder = path.join(localStorageDir, sanitizedExamName);
+        relativeUrl = `/local_storage/${encodeURIComponent(sanitizedExamName)}/${safeFilename}`;
+      } else if (sanitizedClassName) {
+        targetFolder = path.join(localStorageDir, "unknown_exam", sanitizedClassName);
+        relativeUrl = `/local_storage/unknown_exam/${encodeURIComponent(sanitizedClassName)}/${safeFilename}`;
+      } else {
+        targetFolder = imagesDir;
+        relativeUrl = `/local_storage/images/${safeFilename}`;
+      }
 
       if (!fs.existsSync(targetFolder)) {
         fs.mkdirSync(targetFolder, { recursive: true });
       }
 
-      const safeFilename = path.basename(filename);
       const filePath = path.join(targetFolder, safeFilename);
       await fs.promises.writeFile(filePath, Buffer.from(base64Data, "base64"));
-
-      // Return local URL, absolute relative to server root
-      const relativeUrl = sanitizedExamName
-        ? `/local_storage/${encodeURIComponent(sanitizedExamName)}/${safeFilename}`
-        : `/local_storage/images/${safeFilename}`;
 
       res.json({
         success: true,

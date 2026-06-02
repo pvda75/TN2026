@@ -951,7 +951,7 @@ export default function App() {
   }, []);
 
   // Safe wrapper for uploading images to either local server or firebase storage
-  const uploadImageFile = async (pathStr: string, base64: string, examName?: string): Promise<string> => {
+  const uploadImageFile = async (pathStr: string, base64: string, examName?: string, className?: string): Promise<string> => {
     let localUrl = "";
     if (localStorageMode || localServerAvailable) {
       try {
@@ -960,7 +960,7 @@ export default function App() {
         const response = await fetch(targetUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: sanitizedFilename, base64, examName }),
+          body: JSON.stringify({ filename: sanitizedFilename, base64, examName, className }),
         });
         if (response.ok) {
           const data = await response.json();
@@ -2326,7 +2326,7 @@ export default function App() {
       const uploadWorker = async (item: any) => {
         try {
           const optSrc = await compressImage(item.src, 720, 960);
-          const url = await uploadImageFile(`${queueDocId}/${item.id}.jpg`, optSrc, item.examName);
+          const url = await uploadImageFile(`${queueDocId}/${item.id}.jpg`, optSrc, item.examName, item.className || item.classId);
           let updatedImages: any[] = [];
           setImages((prev) => {
             updatedImages = prev.map((p) =>
@@ -2456,7 +2456,7 @@ export default function App() {
       try {
         const optSrc = await compressImage(item.imageSrc, 720, 960);
         const path = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
-        const url = await uploadImageFile(path, optSrc, item.examName);
+        const url = await uploadImageFile(path, optSrc, item.examName, item.className || item.classId);
 
         // Update local state history
         setScanHistory((prev) =>
@@ -3907,7 +3907,8 @@ export default function App() {
     let preferredUrl = url;
     if ((localStorageMode || localServerAvailable) && item.id) {
       const examFolder = item.examName || "unknown_exam";
-      preferredUrl = `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${item.id}.jpg`;
+      const classFolder = item.className || item.classId || "unknown_class";
+      preferredUrl = `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${encodeURIComponent(classFolder)}/${item.id}.jpg`;
     }
 
     img.src = preferredUrl;
@@ -6655,7 +6656,8 @@ export default function App() {
                               (() => {
                                 if ((localStorageMode || localServerAvailable) && selectedResult.id) {
                                   const examFolder = selectedResult.examName || "unknown_exam";
-                                  return `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${selectedResult.id}.jpg`;
+                                  const classFolder = selectedResult.className || selectedResult.classId || "unknown_class";
+                                  return `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${encodeURIComponent(classFolder)}/${selectedResult.id}.jpg`;
                                 }
                                 return selectedResult.imageSrc || selectedResult.firebaseImageUrl;
                               })()
