@@ -477,7 +477,7 @@ const resolveLocalUrl = (pathOrUrl: string): string => {
   const idx = pathOrUrl.indexOf("/local_storage/");
   if (idx !== -1) {
     const relativePath = pathOrUrl.substring(idx);
-    const serverUrl = localStorage.getItem("local_server_url") || "http://localhost:3000";
+    const serverUrl = localStorage.getItem("local_server_url") || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
     return `${serverUrl.replace(/\/$/, "")}${relativePath}`;
   }
   return pathOrUrl;
@@ -490,7 +490,7 @@ const getLocalServerConstructedUrl = (item: any): string => {
   const sessionFolder = item.sessionId || "unknown_session";
   const rawPath = `scans/${examFolder}/${sessionFolder}/${item.id}.jpg`;
   const sanitizedFilename = rawPath.replace(/[^a-zA-Z0-9_\.]/g, "_");
-  const serverUrl = localStorage.getItem("local_server_url") || "http://localhost:3000";
+  const serverUrl = localStorage.getItem("local_server_url") || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
   return `${serverUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${encodeURIComponent(classFolder)}/${encodeURIComponent(sanitizedFilename)}`;
 };
 
@@ -958,7 +958,7 @@ export default function App() {
     return localStorage.getItem("local_storage_mode") === "true";
   });
   const [localServerUrl, setLocalServerUrl] = useState<string>(() => {
-    return localStorage.getItem("local_server_url") || "http://localhost:3000";
+    return localStorage.getItem("local_server_url") || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
   });
   const [localServerAvailable, setLocalServerAvailable] = useState<boolean>(false);
 
@@ -970,6 +970,9 @@ export default function App() {
         const data = await res.json();
         if (data.runningLocally) {
           setLocalServerAvailable(true);
+          const currentOrigin = window.location.origin;
+          setLocalServerUrl(currentOrigin);
+          localStorage.setItem("local_server_url", currentOrigin);
           setLocalStorageMode(true);
           localStorage.setItem("local_storage_mode", "true");
         }
@@ -979,8 +982,9 @@ export default function App() {
           const data = await res.json();
           if (data.runningLocally) {
             setLocalServerAvailable(true);
-            setLocalServerUrl(window.location.origin);
-            localStorage.setItem("local_server_url", window.location.origin);
+            const currentOrigin = window.location.origin;
+            setLocalServerUrl(currentOrigin);
+            localStorage.setItem("local_server_url", currentOrigin);
             setLocalStorageMode(true);
             localStorage.setItem("local_storage_mode", "true");
           }
