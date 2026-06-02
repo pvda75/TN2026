@@ -994,6 +994,21 @@ export default function App() {
           localStorage.setItem("local_server_url", currentOrigin);
           setLocalStorageMode(true);
           localStorage.setItem("local_storage_mode", "true");
+          
+          try {
+            const dbRes = await fetch(`${currentOrigin}/api/local-db`);
+            if (dbRes.ok) {
+              const dbData = await dbRes.json();
+              if (dbData.users && Array.isArray(dbData.users)) {
+                setAppUsers(dbData.users);
+              }
+              if (dbData.structures && Array.isArray(dbData.structures)) {
+                setExamStructures(dbData.structures);
+              }
+            }
+          } catch (dbErr) {
+            console.error("Failed to preload local-db:", dbErr);
+          }
         }
       } catch (err) {
         try {
@@ -1006,6 +1021,21 @@ export default function App() {
             localStorage.setItem("local_server_url", currentOrigin);
             setLocalStorageMode(true);
             localStorage.setItem("local_storage_mode", "true");
+            
+            try {
+              const dbRes = await fetch(`${currentOrigin}/api/local-db`);
+              if (dbRes.ok) {
+                const dbData = await dbRes.json();
+                if (dbData.users && Array.isArray(dbData.users)) {
+                  setAppUsers(dbData.users);
+                }
+                if (dbData.structures && Array.isArray(dbData.structures)) {
+                  setExamStructures(dbData.structures);
+                }
+              }
+            } catch (dbErr) {
+              console.error("Failed to preload local-db:", dbErr);
+            }
           }
         } catch (e) {
           setLocalServerAvailable(false);
@@ -1083,7 +1113,14 @@ export default function App() {
 
   useEffect(() => {
     setSafeStorage("app_users", JSON.stringify(appUsers));
-  }, [appUsers]);
+    if (isLocalServerMode && isLoadedRef.current) {
+      fetch(`${localServerUrl}/api/local-db`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ users: appUsers })
+      }).catch(err => console.error("Failed to sync users to local server", err));
+    }
+  }, [appUsers, isLocalServerMode, localServerUrl]);
 
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -2592,7 +2629,7 @@ export default function App() {
   }, [scanHistory, currentUserId]);
   // --------------------------------
 
-  // Load initial data from localforage
+  // Load initial data from localforage / local central database
   useEffect(() => {
     if (!currentUserId) {
       setImages([]);
@@ -2604,6 +2641,74 @@ export default function App() {
     isLoadedRef.current = false;
     const loadData = async () => {
       try {
+        if (isLocalServerMode) {
+          try {
+            const res = await fetch(`${localServerUrl}/api/local-db`);
+            if (res.ok) {
+              const dbData = await res.json();
+              if (isMounted) {
+                if (dbData.users && Array.isArray(dbData.users)) {
+                  setAppUsers(dbData.users);
+                }
+                if (dbData.structures && Array.isArray(dbData.structures)) {
+                  setExamStructures(dbData.structures);
+                }
+                if (dbData.history && Array.isArray(dbData.history)) {
+                  const parsedHistory = dbData.history.map((item: any) => {
+                    let totalScore = item.score || 0;
+                    let p1Score = 0;
+                    let p2Score = 0;
+                    let p3Score = 0;
+                    const details = item.resultDetails?.resultDetails || item.resultDetails || {};
+                    if (details.part1) {
+                      details.part1.forEach((q: any) => {
+                        if (q.isCorrect && !q.points) q.points = 0.25;
+                        p1Score += q.points || 0;
+                      });
+                    }
+                    if (details.part2) {
+                      details.part2.forEach((q: any) => {
+                        p2Score += q.points || 0;
+                      });
+                    }
+                    if (details.part3) {
+                      details.part3.forEach((q: any) => {
+                        if (q.isCorrect && !q.points) q.points = 0.5;
+                        p3Score += q.points || 0;
+                      });
+                    }
+                    const cleaned = { ...item };
+                    if (cleaned.firebaseImageUrl) {
+                      cleaned.imageSrc = "";
+                      cleaned.originalImageSrc = "";
+                      if (cleaned.result) {
+                        cleaned.result = { ...cleaned.result, imageSrc: "", originalImageSrc: "" };
+                      }
+                    }
+                    return {
+                      ...cleaned,
+                      score: p1Score + p2Score + p3Score,
+                      resultDetails: details,
+                      timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
+                    };
+                  });
+                  setScanHistory(parsedHistory);
+                }
+                if (dbData.images && Array.isArray(dbData.images)) {
+                  setImages(dbData.images);
+                }
+                if (dbData.omrConfig) {
+                  setGlobalOMRConfig(dbData.omrConfig);
+                }
+                isLoadedRef.current = true;
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn("Failed to fetch from local server during loadData, falling back to localforage", e);
+          }
+        }
+
         const savedHistory =
           await localforage.getItem<any[]>(`autograde_history_${currentUserId}`);
         if (isMounted && savedHistory && Array.isArray(savedHistory)) {
@@ -2770,7 +2875,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [currentUserId]);
+  }, [currentUserId, isLocalServerMode, localServerUrl]);
 
   const [dialogState, setDialogState] = useState<{
     type: "alert" | "confirm" | "prompt";
@@ -2786,7 +2891,14 @@ export default function App() {
 
   useEffect(() => {
     setSafeStorage("autograde_structures", JSON.stringify(examStructures));
-  }, [examStructures]);
+    if (isLocalServerMode && isLoadedRef.current) {
+      fetch(`${localServerUrl}/api/local-db`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ structures: examStructures })
+      }).catch(err => console.error("Failed to sync structures to local server", err));
+    }
+  }, [examStructures, isLocalServerMode, localServerUrl]);
 
   useEffect(() => {
     setSafeStorage("autograde_configs", JSON.stringify(examConfigs));
@@ -2799,20 +2911,34 @@ export default function App() {
   useEffect(() => {
     if (globalOMRConfig) {
       setSafeStorage("omr_calibration_config", JSON.stringify(globalOMRConfig));
+      if (isLocalServerMode && isLoadedRef.current) {
+        fetch(`${localServerUrl}/api/local-db`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ omrConfig: globalOMRConfig })
+        }).catch(err => console.error("Failed to sync omrConfig to local server", err));
+      }
     }
-  }, [globalOMRConfig]);
+  }, [globalOMRConfig, isLocalServerMode, localServerUrl]);
 
   useEffect(() => {
     if (!isLoadedRef.current || isLoggingOutRef.current || !currentUserId) return;
     const timeout = setTimeout(() => {
       try {
         localforage.setItem(`autograde_history_${currentUserId}`, scanHistory);
+        if (isLocalServerMode) {
+          fetch(`${localServerUrl}/api/local-db`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ history: scanHistory })
+          }).catch(err => console.error("Failed to sync history to local server", err));
+        }
       } catch (err) {
         console.error("Failed to save history:", err);
       }
     }, 1500);
     return () => clearTimeout(timeout);
-  }, [scanHistory, currentUserId]);
+  }, [scanHistory, currentUserId, isLocalServerMode, localServerUrl]);
 
   useEffect(() => {
     if (!isLoadedRef.current || isLoggingOutRef.current || !currentUserId) return;
@@ -2820,12 +2946,105 @@ export default function App() {
     const timeout = setTimeout(() => {
       try {
         localforage.setItem(`autograde_images_${currentUserId}`, images);
+        if (isLocalServerMode) {
+          fetch(`${localServerUrl}/api/local-db`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ images: images })
+          }).catch(err => console.error("Failed to save images:", err));
+        }
       } catch (err) {
         console.error("Failed to save images:", err);
       }
     }, 1500);
     return () => clearTimeout(timeout);
-  }, [images, currentUserId, activeQueueUserId]);
+  }, [images, currentUserId, activeQueueUserId, isLocalServerMode, localServerUrl]);
+
+  useEffect(() => {
+    if (!isLocalServerMode || !currentUserId || !isLoadedRef.current) return () => {};
+
+    const pollLocalServer = async () => {
+      try {
+        const res = await fetch(`${localServerUrl}/api/local-db`);
+        if (res.ok) {
+          const dbData = await res.json();
+          // Update users if changed
+          if (dbData.users && Array.isArray(dbData.users)) {
+            setAppUsers((prev) => JSON.stringify(prev) === JSON.stringify(dbData.users) ? prev : dbData.users);
+          }
+          // Update structures if changed
+          if (dbData.structures && Array.isArray(dbData.structures)) {
+            setExamStructures((prev) => JSON.stringify(prev) === JSON.stringify(dbData.structures) ? prev : dbData.structures);
+          }
+          // Update history if changed
+          if (dbData.history && Array.isArray(dbData.history)) {
+            const parsedHistory = dbData.history.map((item: any) => {
+              let totalScore = item.score || 0;
+              let p1Score = 0;
+              let p2Score = 0;
+              let p3Score = 0;
+              const details = item.resultDetails?.resultDetails || item.resultDetails || {};
+              if (details.part1) {
+                details.part1.forEach((q: any) => {
+                  if (q.isCorrect && !q.points) q.points = 0.25;
+                  p1Score += q.points || 0;
+                });
+              }
+              if (details.part2) {
+                details.part2.forEach((q: any) => {
+                  p2Score += q.points || 0;
+                });
+              }
+              if (details.part3) {
+                details.part3.forEach((q: any) => {
+                  if (q.isCorrect && !q.points) q.points = 0.5;
+                  p3Score += q.points || 0;
+                });
+              }
+              const cleaned = { ...item };
+              if (cleaned.firebaseImageUrl) {
+                cleaned.imageSrc = "";
+                cleaned.originalImageSrc = "";
+                if (cleaned.result) {
+                  cleaned.result = { ...cleaned.result, imageSrc: "", originalImageSrc: "" };
+                }
+              }
+              return {
+                ...cleaned,
+                score: p1Score + p2Score + p3Score,
+                resultDetails: details,
+                timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
+              };
+            });
+            setScanHistory((prev) => {
+              const prevStr = JSON.stringify(prev.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
+              const dbStr = JSON.stringify(parsedHistory.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
+              if (prevStr === dbStr) return prev;
+              return parsedHistory;
+            });
+          }
+          // Update images if changed
+          if (dbData.images && Array.isArray(dbData.images)) {
+            setImages((prev) => {
+              const prevStr = JSON.stringify(prev);
+              const dbStr = JSON.stringify(dbData.images);
+              if (prevStr === dbStr) return prev;
+              return dbData.images;
+            });
+          }
+          // Update global OMR config if changed
+          if (dbData.omrConfig) {
+            setGlobalOMRConfig((prev) => JSON.stringify(prev) === JSON.stringify(dbData.omrConfig) ? prev : dbData.omrConfig);
+          }
+        }
+      } catch (err) {
+        console.warn("Local server DB polling failed:", err);
+      }
+    };
+
+    const interval = setInterval(pollLocalServer, 8000); // Poll every 8 seconds
+    return () => clearInterval(interval);
+  }, [isLocalServerMode, currentUserId, localServerUrl]);
 
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

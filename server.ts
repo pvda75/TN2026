@@ -20,6 +20,74 @@ async function startServer() {
     fs.mkdirSync(imagesDir, { recursive: true });
   }
 
+  const dbPath = path.join(localStorageDir, "db.json");
+
+  // Helper to read database
+  const readLocalDB = () => {
+    if (!fs.existsSync(dbPath)) {
+      const initial = {
+        users: [
+          { id: "1", username: "admin", passwordHash: "admin", role: "ADMIN" },
+          { id: "2", username: "user", passwordHash: "user", role: "USER" }
+        ],
+        structures: [],
+        history: [],
+        images: [],
+        omrConfig: null
+      };
+      try {
+        fs.writeFileSync(dbPath, JSON.stringify(initial, null, 2), "utf8");
+      } catch (err) {
+        console.error("Failed to create initial db.json:", err);
+      }
+      return initial;
+    }
+    try {
+      const data = fs.readFileSync(dbPath, "utf8");
+      return JSON.parse(data);
+    } catch (err) {
+      console.error("Failed to read/parse db.json, returning empty structure:", err);
+      return { users: [], structures: [], history: [], images: [], omrConfig: null };
+    }
+  };
+
+  // Helper to write database
+  const writeLocalDB = (dbData: any) => {
+    try {
+      fs.writeFileSync(dbPath, JSON.stringify(dbData, null, 2), "utf8");
+      return true;
+    } catch (err) {
+      console.error("Failed to write to db.json:", err);
+      return false;
+    }
+  };
+
+  // GET complete local DB
+  app.get("/api/local-db", (req, res) => {
+    const dbData = readLocalDB();
+    res.json(dbData);
+  });
+
+  // POST or merge data into local DB
+  app.post("/api/local-db", (req, res) => {
+    try {
+      const dbData = readLocalDB();
+      const { users, structures, history, images, omrConfig } = req.body;
+
+      if (users !== undefined) dbData.users = users;
+      if (structures !== undefined) dbData.structures = structures;
+      if (history !== undefined) dbData.history = history;
+      if (images !== undefined) dbData.images = images;
+      if (omrConfig !== undefined) dbData.omrConfig = omrConfig;
+
+      writeLocalDB(dbData);
+      res.json({ success: true, db: dbData });
+    } catch (err: any) {
+      console.error("Error updating local-db:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // API endpoint so the client can detect if this server has local storage capabilities
   app.get("/api/check-local", (req, res) => {
     res.json({
