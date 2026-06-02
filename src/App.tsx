@@ -2692,10 +2692,20 @@ export default function App() {
                       timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
                     };
                   });
-                  setScanHistory(parsedHistory);
+                  // Filter by role: Admin sees everything, standard user sees their own
+                  const filteredHistory = parsedHistory.filter((item: any) => {
+                    if (userRole === "ADMIN") return true;
+                    return !item.userId || item.userId === currentUserId;
+                  });
+                  setScanHistory(filteredHistory);
                 }
                 if (dbData.images && Array.isArray(dbData.images)) {
-                  setImages(dbData.images);
+                  // Filter by role: Admin sees everything, standard user sees their own
+                  const filteredImages = dbData.images.filter((img: any) => {
+                    if (userRole === "ADMIN") return true;
+                    return !img.userId || img.userId === currentUserId;
+                  });
+                  setImages(filteredImages);
                 }
                 if (dbData.omrConfig) {
                   setGlobalOMRConfig(dbData.omrConfig);
@@ -2927,10 +2937,14 @@ export default function App() {
       try {
         localforage.setItem(`autograde_history_${currentUserId}`, scanHistory);
         if (isLocalServerMode) {
+          const historyWithOwner = scanHistory.map((item: any) => ({
+            ...item,
+            userId: item.userId || currentUserId
+          }));
           fetch(`${localServerUrl}/api/local-db`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ history: scanHistory })
+            body: JSON.stringify({ history: historyWithOwner, userId: currentUserId })
           }).catch(err => console.error("Failed to sync history to local server", err));
         }
       } catch (err) {
@@ -2947,10 +2961,14 @@ export default function App() {
       try {
         localforage.setItem(`autograde_images_${currentUserId}`, images);
         if (isLocalServerMode) {
+          const imagesWithOwner = images.map((img: any) => ({
+            ...img,
+            userId: img.userId || currentUserId
+          }));
           fetch(`${localServerUrl}/api/local-db`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ images: images })
+            body: JSON.stringify({ images: imagesWithOwner, userId: currentUserId })
           }).catch(err => console.error("Failed to save images:", err));
         }
       } catch (err) {
@@ -3016,20 +3034,28 @@ export default function App() {
                 timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
               };
             });
+            const filteredHistory = parsedHistory.filter((item: any) => {
+              if (userRole === "ADMIN") return true;
+              return !item.userId || item.userId === currentUserId;
+            });
             setScanHistory((prev) => {
               const prevStr = JSON.stringify(prev.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
-              const dbStr = JSON.stringify(parsedHistory.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
+              const dbStr = JSON.stringify(filteredHistory.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
               if (prevStr === dbStr) return prev;
-              return parsedHistory;
+              return filteredHistory;
             });
           }
           // Update images if changed
           if (dbData.images && Array.isArray(dbData.images)) {
+            const filteredImages = dbData.images.filter((img: any) => {
+              if (userRole === "ADMIN") return true;
+              return !img.userId || img.userId === currentUserId;
+            });
             setImages((prev) => {
               const prevStr = JSON.stringify(prev);
-              const dbStr = JSON.stringify(dbData.images);
+              const dbStr = JSON.stringify(filteredImages);
               if (prevStr === dbStr) return prev;
-              return dbData.images;
+              return filteredImages;
             });
           }
           // Update global OMR config if changed
@@ -3044,7 +3070,7 @@ export default function App() {
 
     const interval = setInterval(pollLocalServer, 8000); // Poll every 8 seconds
     return () => clearInterval(interval);
-  }, [isLocalServerMode, currentUserId, localServerUrl]);
+  }, [isLocalServerMode, currentUserId, localServerUrl, userRole]);
 
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);

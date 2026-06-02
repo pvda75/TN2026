@@ -72,13 +72,41 @@ async function startServer() {
   app.post("/api/local-db", (req, res) => {
     try {
       const dbData = readLocalDB();
-      const { users, structures, history, images, omrConfig } = req.body;
+      const { users, structures, history, images, omrConfig, userId } = req.body;
 
       if (users !== undefined) dbData.users = users;
       if (structures !== undefined) dbData.structures = structures;
-      if (history !== undefined) dbData.history = history;
-      if (images !== undefined) dbData.images = images;
       if (omrConfig !== undefined) dbData.omrConfig = omrConfig;
+
+      // Ensure arrays are initialized
+      if (!Array.isArray(dbData.images)) dbData.images = [];
+      if (!Array.isArray(dbData.history)) dbData.history = [];
+
+      // Merge images safely if userId is provided
+      if (images !== undefined) {
+        if (userId) {
+          const cleanImages = images.map((img: any) => ({ ...img, userId }));
+          dbData.images = [
+            ...dbData.images.filter((img: any) => !img.userId || img.userId !== userId),
+            ...cleanImages
+          ];
+        } else {
+          dbData.images = images;
+        }
+      }
+
+      // Merge history safely if userId is provided
+      if (history !== undefined) {
+        if (userId) {
+          const cleanHistory = history.map((item: any) => ({ ...item, userId }));
+          dbData.history = [
+            ...dbData.history.filter((item: any) => !item.userId || item.userId !== userId),
+            ...cleanHistory
+          ];
+        } else {
+          dbData.history = history;
+        }
+      }
 
       writeLocalDB(dbData);
       res.json({ success: true, db: dbData });
