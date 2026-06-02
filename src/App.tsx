@@ -1746,6 +1746,8 @@ export default function App() {
   }, [allowedSessions.join(","), activeSessionId]);
 
   const [images, setImages] = useState<ScannedImage[]>([]);
+  const lastSyncedImagesRef = useRef<any>(null);
+  const lastSyncedHistoryRef = useRef<any>(null);
   const [editingImageConfigId, setEditingImageConfigId] = useState<
     string | null
   >(null);
@@ -2689,7 +2691,7 @@ export default function App() {
                       ...cleaned,
                       score: p1Score + p2Score + p3Score,
                       resultDetails: details,
-                      timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
+                      timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(0),
                     };
                   });
                   // Filter by role: Admin sees everything, standard user sees their own
@@ -2697,6 +2699,7 @@ export default function App() {
                     if (userRole === "ADMIN") return true;
                     return !item.userId || item.userId === currentUserId;
                   });
+                  lastSyncedHistoryRef.current = filteredHistory;
                   setScanHistory(filteredHistory);
                 }
                 if (dbData.images && Array.isArray(dbData.images)) {
@@ -2705,6 +2708,7 @@ export default function App() {
                     if (userRole === "ADMIN") return true;
                     return !img.userId || img.userId === currentUserId;
                   });
+                  lastSyncedImagesRef.current = filteredImages;
                   setImages(filteredImages);
                 }
                 if (dbData.omrConfig) {
@@ -2941,11 +2945,33 @@ export default function App() {
             ...item,
             userId: item.userId || currentUserId
           }));
-          fetch(`${localServerUrl}/api/local-db`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ history: historyWithOwner, userId: currentUserId })
-          }).catch(err => console.error("Failed to sync history to local server", err));
+
+          // Kiểm tra xem dữ liệu hiện tại có khác biệt thực sự so với dữ liệu vừa được sync từ server về không
+          const currentStr = JSON.stringify(historyWithOwner.map(p => ({
+            ...p,
+            timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp
+          })));
+          const lastSyncedStr = lastSyncedHistoryRef.current
+            ? JSON.stringify(lastSyncedHistoryRef.current.map((p: any) => ({
+                ...p,
+                userId: p.userId || currentUserId,
+                timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp
+              })))
+            : "";
+
+          if (currentStr !== lastSyncedStr) {
+            fetch(`${localServerUrl}/api/local-db`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ history: historyWithOwner, userId: currentUserId })
+            })
+            .then(res => {
+              if (res.ok) {
+                lastSyncedHistoryRef.current = historyWithOwner;
+              }
+            })
+            .catch(err => console.error("Failed to sync history to local server", err));
+          }
         }
       } catch (err) {
         console.error("Failed to save history:", err);
@@ -2965,11 +2991,29 @@ export default function App() {
             ...img,
             userId: img.userId || currentUserId
           }));
-          fetch(`${localServerUrl}/api/local-db`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ images: imagesWithOwner, userId: currentUserId })
-          }).catch(err => console.error("Failed to save images:", err));
+
+          // Kiểm tra xem dữ liệu hiện tại có khác biệt thực sự so với dữ liệu vừa được sync từ server về không
+          const currentStr = JSON.stringify(imagesWithOwner);
+          const lastSyncedStr = lastSyncedImagesRef.current
+            ? JSON.stringify(lastSyncedImagesRef.current.map((img: any) => ({
+                ...img,
+                userId: img.userId || currentUserId
+              })))
+            : "";
+
+          if (currentStr !== lastSyncedStr) {
+            fetch(`${localServerUrl}/api/local-db`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ images: imagesWithOwner, userId: currentUserId })
+            })
+            .then(res => {
+              if (res.ok) {
+                lastSyncedImagesRef.current = imagesWithOwner;
+              }
+            })
+            .catch(err => console.error("Failed to save images:", err));
+          }
         }
       } catch (err) {
         console.error("Failed to save images:", err);
@@ -3031,7 +3075,7 @@ export default function App() {
                 ...cleaned,
                 score: p1Score + p2Score + p3Score,
                 resultDetails: details,
-                timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
+                timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(0),
               };
             });
             const filteredHistory = parsedHistory.filter((item: any) => {
@@ -3042,6 +3086,7 @@ export default function App() {
               const prevStr = JSON.stringify(prev.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
               const dbStr = JSON.stringify(filteredHistory.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
               if (prevStr === dbStr) return prev;
+              lastSyncedHistoryRef.current = filteredHistory;
               return filteredHistory;
             });
           }
@@ -3055,6 +3100,7 @@ export default function App() {
               const prevStr = JSON.stringify(prev);
               const dbStr = JSON.stringify(filteredImages);
               if (prevStr === dbStr) return prev;
+              lastSyncedImagesRef.current = filteredImages;
               return filteredImages;
             });
           }
