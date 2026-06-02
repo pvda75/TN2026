@@ -18,14 +18,18 @@ try {
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 try {
-  storage.maxUploadRetryTime = 5000; // 5 seconds fail-fast
-  storage.maxOperationRetryTime = 5000; // 5 seconds fail-fast
+  storage.maxUploadRetryTime = 30000; // 30 seconds
+  storage.maxOperationRetryTime = 30000; // 30 seconds
 } catch (e) {
   console.error("Failed to set storage retry times:", e);
 }
 export const googleProvider = new GoogleAuthProvider();
 
 export const uploadBase64ToStorage = async (path: string, base64: string, metadata?: UploadMetadata): Promise<string> => {
+  if (!base64 || !base64.startsWith("data:")) {
+    // Already an HTTP URL or invalid data URL - return as is safely
+    return base64 || "";
+  }
   const fileRef = ref(storage, path);
   const finalMetadata: UploadMetadata = {
     cacheControl: "public, max-age=31536000",

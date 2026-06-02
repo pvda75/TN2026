@@ -539,6 +539,10 @@ const CachedImage = ({ src, className, alt, onLoad, onError, fallbackSrc }: Cach
           if (!response.ok) {
             throw new Error("HTTP error " + response.status);
           }
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType && !contentType.includes("image/")) {
+            throw new Error("HTTP response content-type is " + contentType + ", expected image/*");
+          }
         } catch (fetchErr) {
           // If primary URL failed and we have a fallback, try to fetch fallback URL
           if (fallbackSrc && fallbackSrc !== src) {
@@ -547,6 +551,10 @@ const CachedImage = ({ src, className, alt, onLoad, onError, fallbackSrc }: Cach
             response = await fetch(currentUrlToFetch, { referrerPolicy: "no-referrer" });
             if (!response.ok) {
               throw new Error("HTTP error " + response.status + " on fallback");
+            }
+            const contentType = response.headers.get("content-type") || "";
+            if (contentType && !contentType.includes("image/")) {
+              throw new Error("HTTP fallback response content-type is " + contentType + ", expected image/*");
             }
           } else {
             throw fetchErr;
@@ -667,7 +675,13 @@ const QueueImageCard = React.memo(({
         {img.src || img.firebaseImageUrl ? (
           <>
             <CachedImage
-              src={img.src || img.firebaseImageUrl}
+              src={
+                img.firebaseImageUrl &&
+                img.firebaseImageUrl.startsWith("http") &&
+                !img.firebaseImageUrl.includes("/local_storage/")
+                  ? img.firebaseImageUrl
+                  : img.src || img.firebaseImageUrl
+              }
               fallbackSrc={img.firebaseImageUrl || img.src}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
             />
@@ -6663,6 +6677,13 @@ export default function App() {
                             key={selectedResult.id}
                             src={
                               (() => {
+                                if (
+                                  selectedResult.firebaseImageUrl &&
+                                  selectedResult.firebaseImageUrl.startsWith("http") &&
+                                  !selectedResult.firebaseImageUrl.includes("/local_storage/")
+                                ) {
+                                  return selectedResult.firebaseImageUrl;
+                                }
                                 if ((localStorageMode || localServerAvailable) && selectedResult.id) {
                                   const examFolder = selectedResult.examName || "unknown_exam";
                                   const classFolder = selectedResult.className || selectedResult.classId || "unknown_class";
