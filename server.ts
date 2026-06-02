@@ -87,7 +87,62 @@ async function startServer() {
     }
   });
 
-  // Serve the local storage folder statically
+  // Helper to recursively search a directory for a file matching a condition
+  const findFileRecursively = (dir: string, matcher: (filename: string) => boolean): string | null => {
+    if (!fs.existsSync(dir)) return null;
+    try {
+      const list = fs.readdirSync(dir);
+      for (const file of list) {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          const found = findFileRecursively(fullPath, matcher);
+          if (found) return found;
+        } else if (matcher(file)) {
+          return fullPath;
+        }
+      }
+    } catch (e) {
+      console.error("Recursive search error:", e);
+    }
+    return null;
+  };
+
+  // Serve local storage manually with robust decoding and automatic queue/history suffix matching fallback
+  app.get("/local_storage/*", (req, res, next) => {
+    try {
+      // Decode the path to translate %20, %2B etc to raw folder name characters
+      const relativePath = decodeURIComponent(req.path.replace(/^\/local_storage\//, ""));
+      const directPath = path.join(localStorageDir, relativePath);
+
+      if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+        return res.sendFile(directPath);
+      }
+
+      // Fallback: If requested file does not exist directly, try to locate it by suffix matching (itemId candidate)
+      const filename = path.basename(relativePath);
+      const ext = path.extname(filename);
+      const basename = path.basename(filename, ext);
+      const parts = basename.split("_");
+      const itemIdCandidate = parts[parts.length - 1];
+
+      if (itemIdCandidate && itemIdCandidate.length >= 5) {
+        const foundPath = findFileRecursively(localStorageDir, (fname) => fname.includes(itemIdCandidate));
+        if (foundPath) {
+          console.log(`[Local Server] Found fallback path on local server for item ID "${itemIdCandidate}": ${foundPath}`);
+          return res.sendFile(foundPath);
+        }
+      }
+      
+      // If still not found, let it fall through
+      next();
+    } catch (e) {
+      console.error("Custom local storage serve error:", e);
+      next();
+    }
+  });
+
+  // Serve the local storage folder statically (as backup/fallback)
   app.use("/local_storage", express.static(localStorageDir));
 
   // Vite middleware for development
