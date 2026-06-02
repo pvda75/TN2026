@@ -477,20 +477,30 @@ const resolveLocalUrl = (pathOrUrl: string): string => {
   const idx = pathOrUrl.indexOf("/local_storage/");
   if (idx !== -1) {
     const relativePath = pathOrUrl.substring(idx);
-    const serverUrl = localStorage.getItem("local_server_url") || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+    const isLocalhost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.port === "3000");
+    const serverUrl = localStorage.getItem("local_server_url") || (isLocalhost ? window.location.origin : "http://localhost:3000");
     return `${serverUrl.replace(/\/$/, "")}${relativePath}`;
   }
   return pathOrUrl;
 };
 
+const sanitizeFolderName = (name: string): string => {
+  if (!name) return "";
+  return name.replace(/[\/\?\<\>\:\*\|\"\\]/g, "_").trim();
+};
+
 const getLocalServerConstructedUrl = (item: any): string => {
   if (!item || !item.id) return "";
-  const examFolder = item.examName || "unknown_exam";
-  const classFolder = item.className || item.classId || "unknown_class";
+  const originalExam = item.examName || "unknown_exam";
+  const originalClass = item.className || item.classId || "unknown_class";
   const sessionFolder = item.sessionId || "unknown_session";
-  const rawPath = `scans/${examFolder}/${sessionFolder}/${item.id}.jpg`;
+  const rawPath = `scans/${originalExam}/${sessionFolder}/${item.id}.jpg`;
   const sanitizedFilename = rawPath.replace(/[^a-zA-Z0-9_\.]/g, "_");
-  const serverUrl = localStorage.getItem("local_server_url") || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+  
+  const examFolder = sanitizeFolderName(originalExam);
+  const classFolder = sanitizeFolderName(originalClass);
+  const isLocalhost = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.port === "3000");
+  const serverUrl = localStorage.getItem("local_server_url") || (isLocalhost ? window.location.origin : "http://localhost:3000");
   return `${serverUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${encodeURIComponent(classFolder)}/${encodeURIComponent(sanitizedFilename)}`;
 };
 
@@ -996,6 +1006,8 @@ export default function App() {
     detectLocalServer();
   }, []);
 
+  const isLocalServerMode = localStorageMode || localServerAvailable || (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.port === "3000" || window.location.origin.includes("localhost:3000")));
+
   // Safe wrapper for uploading images to either local server or firebase storage
   const uploadImageFile = async (pathStr: string, base64: string, examName?: string, className?: string): Promise<string> => {
     const t0 = performance.now();
@@ -1003,7 +1015,7 @@ export default function App() {
 
     // If running in local storage mode or if local server is available, completely skip cloud upload to Firebase Storage.
     // This dramatically improves performance as requested by the user, avoids uploading huge image files, and saves bandwidth.
-    if (localStorageMode || localServerAvailable) {
+    if (isLocalServerMode) {
       try {
         const sanitizedFilename = pathStr.replace(/[^a-zA-Z0-9_\.]/g, "_");
         const targetUrl = `${localServerUrl.replace(/\/$/, "")}/api/upload-local`;
@@ -3576,12 +3588,12 @@ export default function App() {
       selectedHistoryIds.includes(item.id),
     );
     const newImages = itemsToRescan
-      .filter((i) => i.imageSrc || i.firebaseImageUrl || ((localStorageMode || localServerAvailable) && i.id))
+      .filter((i) => i.imageSrc || i.firebaseImageUrl || (isLocalServerMode && i.id))
       .map((item) => {
         const newId = Date.now().toString() + Math.random().toString();
         addUnpushedImageId(newId);
         registerCurrentSessionCaptureId(newId);
-        const resolvedSrc = resolveLocalUrl(item.firebaseImageUrl || item.imageSrc) || ((localStorageMode || localServerAvailable) ? getLocalServerConstructedUrl(item) : "");
+        const resolvedSrc = resolveLocalUrl(item.firebaseImageUrl || item.imageSrc) || (isLocalServerMode ? getLocalServerConstructedUrl(item) : "");
         return {
           id: newId,
           src: resolvedSrc,
@@ -3607,7 +3619,7 @@ export default function App() {
 
     const sourceImageToProcess =
       resolveLocalUrl(match.originalImageSrc || match.imageSrc || match.firebaseImageUrl) ||
-      ((localStorageMode || localServerAvailable) ? getLocalServerConstructedUrl(match) : "");
+      (isLocalServerMode ? getLocalServerConstructedUrl(match) : "");
 
     if (!sourceImageToProcess) return;
 
@@ -3942,7 +3954,7 @@ export default function App() {
   const generateDrawnCanvasUrl = async (item: any): Promise<string | null> => {
     const url = item.firebaseImageUrl || item.imageSrc || "";
     let preferredUrl = resolveLocalUrl(url);
-    if (!preferredUrl && item.id && (localStorageMode || localServerAvailable)) {
+    if (!preferredUrl && item.id && isLocalServerMode) {
       preferredUrl = getLocalServerConstructedUrl(item);
     }
     if (!preferredUrl) return null;
@@ -6630,7 +6642,7 @@ export default function App() {
                         {currentUserData?.role === "ADMIN" &&
                           (selectedResult.imageSrc ||
                             selectedResult.firebaseImageUrl ||
-                            ((localStorageMode || localServerAvailable) && selectedResult.id)) && (
+                            (isLocalServerMode && selectedResult.id)) && (
                             <button
                               className="bg-red-500 hover:bg-red-600 text-white border-red-600 font-semibold py-1.5 px-3 text-xs rounded-lg shadow-sm transition-colors ml-2"
                               onClick={() => {
@@ -6687,7 +6699,7 @@ export default function App() {
                     </div>
                     {selectedResult.imageSrc ||
                     selectedResult.firebaseImageUrl ||
-                    ((localStorageMode || localServerAvailable) && selectedResult.id) ? (
+                    (isLocalServerMode && selectedResult.id) ? (
                       <div className="overflow-auto w-full h-[calc(100%-60px)] bg-slate-200/50 rounded-lg border border-slate-200 flex justify-center items-start p-2">
                         <div
                           id="print-area"
@@ -6698,7 +6710,7 @@ export default function App() {
                             key={selectedResult.id}
                             src={
                               resolveLocalUrl(selectedResult.firebaseImageUrl || selectedResult.imageSrc) ||
-                              ((localStorageMode || localServerAvailable) ? getLocalServerConstructedUrl(selectedResult) : "")
+                              (isLocalServerMode ? getLocalServerConstructedUrl(selectedResult) : "")
                             }
                             fallbackSrc={resolveLocalUrl(selectedResult.firebaseImageUrl || selectedResult.imageSrc)}
                             alt="Scanned form"
@@ -6710,7 +6722,7 @@ export default function App() {
                               setImageLoadingStates(prev => ({ ...prev, [selectedResult.id]: false }));
                             }}
                           />
-                          {imageLoadingStates[selectedResult.id] !== false && (selectedResult.imageSrc || selectedResult.firebaseImageUrl || ((localStorageMode || localServerAvailable) && selectedResult.id)) && (
+                          {imageLoadingStates[selectedResult.id] !== false && (selectedResult.imageSrc || selectedResult.firebaseImageUrl || (isLocalServerMode && selectedResult.id)) && (
                             <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center p-8 text-center z-10 transition-all duration-200">
                               <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
                               <p className="text-xs text-slate-700 font-bold mb-1 col-span-2">
