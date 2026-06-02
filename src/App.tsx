@@ -5511,43 +5511,57 @@ export default function App() {
                         </div>
 
                         {localStorageMode && (
-                          <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-3 items-end">
-                            <div className="flex-1">
-                              <label className="text-xs font-bold text-slate-700 block mb-1">
-                                Địa chỉ Máy chủ Lưu ảnh cục bộ (IP):
-                              </label>
-                              <input
-                                type="text"
-                                className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                                placeholder="http://localhost:3000"
-                                value={localServerUrl}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setLocalServerUrl(val);
-                                  localStorage.setItem("local_server_url", val);
-                                }}
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  const pingUrl = `${localServerUrl.replace(/\/$/, "")}/api/check-local`;
-                                  const res = await fetch(pingUrl);
-                                  const data = await res.json();
-                                  if (data.runningLocally) {
-                                    alert("Đã kết nối thành công với Máy chủ cục bộ!\nThư mục lưu trữ: " + data.storagePath);
-                                  } else {
-                                    alert("Đã nhận được phản hồi nhưng máy chủ không có chức năng lưu trữ cục bộ.");
+                          <div className="pt-3 border-t border-slate-100 space-y-3">
+                            {window.location.protocol === "https:" && (
+                              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3 text-xs leading-relaxed">
+                                <strong className="text-amber-800 flex items-center gap-1.5 mb-1 text-[13px]">
+                                  ⚠️ Lưu ý bảo mật Trình Duyệt (Mixed Content):
+                                </strong>
+                                Bạn đang mở ứng dụng thông qua liên kết online bảo mật <strong>HTTPS (Google Cloud)</strong>. Trình duyệt hiện đại sẽ chặn kết xuất dữ liệu cục bộ <strong>HTTP (localhost/127.0.0.1)</strong> vì lý do bảo mật.
+                                <div className="mt-1.5 font-semibold text-indigo-700">
+                                  👉 Để sử dụng lưu trữ cục bộ: Bạn hãy khởi chạy file <code className="bg-amber-100 px-1 py-0.5 rounded text-amber-900">Chay_May_Chu_Cham_Bai.bat</code> trên máy tính, sau đó truy cập trực tiếp địa chỉ <a href="http://localhost:3000" target="_blank" rel="noopener noreferrer" className="underline hover:text-indigo-900 font-bold">http://localhost:3000</a> hoặc <a href="http://127.0.0.1:3000" target="_blank" rel="noopener noreferrer" className="underline hover:text-indigo-900 font-bold">http://127.0.0.1:3000</a> trên trình duyệt.
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="flex flex-col sm:flex-row gap-3 items-end">
+                              <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-700 block mb-1">
+                                  Địa chỉ Máy chủ Lưu ảnh cục bộ (IP):
+                                </label>
+                                <input
+                                  type="text"
+                                  className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                                  placeholder="http://localhost:3000"
+                                  value={localServerUrl}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setLocalServerUrl(val);
+                                    localStorage.setItem("local_server_url", val);
+                                  }}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const pingUrl = `${localServerUrl.replace(/\/$/, "")}/api/check-local`;
+                                    const res = await fetch(pingUrl);
+                                    const data = await res.json();
+                                    if (data.runningLocally) {
+                                      alert("Đã kết nối thành công với Máy chủ cục bộ!\nThư mục lưu trữ: " + data.storagePath);
+                                    } else {
+                                      alert("Đã nhận được phản hồi nhưng máy chủ không có chức năng lưu trữ cục bộ.");
+                                    }
+                                  } catch (err) {
+                                    alert("Không thể kết nối đến Máy chủ tại: " + localServerUrl + "\nHãy kiểm tra xem:\n1. Bạn đã chạy tập tin Chay_May_Chu_Cham_Bai.bat chưa?\n2. Bạn có đang mở web bằng địa chỉ http://localhost:3000 không?\n(Nếu dùng link online HTTPS, trình duyệt sẽ tự đông ngăn kết nối đến HTTP ở máy cục bộ vì lý do bảo mật)");
                                   }
-                                } catch (err) {
-                                  alert("Không thể kết nối đến Máy chủ tại: " + localServerUrl + "\nHãy kiểm tra xem bạn đã khởi chạy lệnh mở app trên máy tính đó chưa.");
-                                }
-                              }}
-                              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-1.5 px-3 rounded-lg text-xs transition-colors whitespace-nowrap border border-indigo-200"
-                            >
-                              Kiểm tra kết nối
-                            </button>
+                                }}
+                                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-1.5 px-3 rounded-lg text-xs transition-colors whitespace-nowrap border border-indigo-200"
+                              >
+                                Kiểm tra kết nối
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
