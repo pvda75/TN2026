@@ -975,41 +975,47 @@ export default function App() {
 
   // Safe wrapper for uploading images to either local server or firebase storage
   const uploadImageFile = async (pathStr: string, base64: string, examName?: string, className?: string): Promise<string> => {
+    const t0 = performance.now();
     let localUrl = "";
-    if (localStorageMode || localServerAvailable) {
-      try {
-        const sanitizedFilename = pathStr.replace(/[^a-zA-Z0-9_\.]/g, "_");
-        const targetUrl = `${localServerUrl.replace(/\/$/, "")}/api/upload-local`;
-        const response = await fetch(targetUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: sanitizedFilename, base64, examName, className }),
-        });
-        if (response.ok) {
-          const data = await response.json();
-          localUrl = `${localServerUrl.replace(/\/$/, "")}${data.url}`;
-        } else {
-          console.warn(`Local upload failed with status ${response.status}`);
+    let cloudUrl = "";
+
+    const localUploadPromise = (async () => {
+      if (localStorageMode || localServerAvailable) {
+        try {
+          const sanitizedFilename = pathStr.replace(/[^a-zA-Z0-9_\.]/g, "_");
+          const targetUrl = `${localServerUrl.replace(/\/$/, "")}/api/upload-local`;
+          const response = await fetch(targetUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: sanitizedFilename, base64, examName, className }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            localUrl = `${localServerUrl.replace(/\/$/, "")}${data.url}`;
+          } else {
+            console.warn(`Local upload failed with status ${response.status}`);
+          }
+        } catch (e) {
+          console.warn("Upload to local storage failed:", e);
         }
+      }
+    })();
+
+    const cloudUploadPromise = (async () => {
+      try {
+        cloudUrl = await uploadBase64ToStorage(pathStr, base64);
       } catch (e) {
-        console.warn("Upload to local storage failed:", e);
+        console.warn("Upload to Firebase Storage failed:", e);
       }
-    }
+    })();
 
-    // Always attempt cloud upload in the background so administrators and other accounts can access the images
-    try {
-      const cloudUrl = await uploadBase64ToStorage(pathStr, base64);
-      if (cloudUrl) {
-        // We prefer to return the cloud URL for storage in Firestore database,
-        // which serves as the perfect fallback for remote admins. Locally, CachedImage
-        // will still resolve path structures locally.
-        return cloudUrl;
-      }
-    } catch (e) {
-      console.warn("Upload to Firebase Storage failed, falling back to local URL:", e);
-    }
+    // Run both local and cloud uploads in parallel to maximize speeds and network responsiveness
+    await Promise.all([localUploadPromise, cloudUploadPromise]);
 
-    return localUrl || "";
+    console.log(`Image upload for ${pathStr} completed in ${(performance.now() - t0).toFixed(0)}ms.`);
+
+    // Always prefer cloudUrl to be printed and persisted into firestore so administrators and remote viewers can load the image.
+    return cloudUrl || localUrl || "";
   };
 
   useEffect(() => {

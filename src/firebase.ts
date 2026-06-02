@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, disableNetwork, setLogLevel } from 'firebase/firestore';
-import { getStorage, ref, uploadString, getDownloadURL, deleteObject, UploadMetadata } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, UploadMetadata } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -25,6 +25,18 @@ try {
 }
 export const googleProvider = new GoogleAuthProvider();
 
+const dataURLtoBlob = (dataurl: string): Blob => {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)![1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
+};
+
 export const uploadBase64ToStorage = async (path: string, base64: string, metadata?: UploadMetadata): Promise<string> => {
   if (!base64 || !base64.startsWith("data:")) {
     // Already an HTTP URL or invalid data URL - return as is safely
@@ -36,8 +48,14 @@ export const uploadBase64ToStorage = async (path: string, base64: string, metada
     contentType: "image/jpeg",
     ...metadata,
   };
-  await uploadString(fileRef, base64, 'data_url', finalMetadata);
-  return await getDownloadURL(fileRef);
+  try {
+    const blob = dataURLtoBlob(base64);
+    await uploadBytes(fileRef, blob, finalMetadata);
+    return await getDownloadURL(fileRef);
+  } catch (err) {
+    console.error("Binary upload failed, fallback to native parsing:", err);
+    throw err;
+  }
 };
 
 export const deleteImageFromStorage = async (path: string) => {
