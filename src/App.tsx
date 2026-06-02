@@ -1807,19 +1807,55 @@ export default function App() {
     "ALL",
   );
   const [imageSearchPhrase, setImageSearchPhrase] = useState("");
+  const [imageCreatorFilter, setImageCreatorFilter] = useState<string>("ALL");
+
+  const recognizeAuthorizedUsers = React.useMemo(() => {
+    return appUsers.filter((u) => u.role === "ADMIN" || u.permissionRecognizeImage !== false);
+  }, [appUsers]);
 
   const examImages = React.useMemo(() => {
+    // 1. Kiểm tra phân quyền nhận dạng của tài khoản hiện tại
+    if (!userHasRecognizeImage) {
+      return [];
+    }
+
     return [...images]
-      .filter(
-        (img) => img.examName === gradeExamName && img.classId === activeClass,
-      )
+      .filter((img) => {
+        // Lọc theo Bài thi (gradeExamName)
+        const isMatchExam = img.examName === gradeExamName;
+        if (!isMatchExam) return false;
+
+        // Lọc theo Lớp/Phòng (activeClass)
+        const isMatchClass = img.classId === activeClass;
+        if (!isMatchClass) return false;
+
+        // Lọc theo tài khoản đã được phân quyền Nhận dạng chấm bài
+        if (userRole === "ADMIN") {
+          // Đối với Admin: có thể lọc theo tài khoản cụ thể được chọn trong UI
+          if (imageCreatorFilter !== "ALL") {
+            return img.userId === imageCreatorFilter || (!img.userId && imageCreatorFilter === "admin");
+          }
+          
+          // Mặc định: Chỉ hiển thị ảnh của những tài khoản được phân quyền Nhận dạng chấm bài
+          if (!img.userId) return true; // Ảnh mặc định/local không có userId
+          const imageOwner = appUsers.find((u) => u.id === img.userId || u.username === img.userId);
+          if (imageOwner) {
+            const ownerHasPermission = imageOwner.role === "ADMIN" || imageOwner.permissionRecognizeImage !== false;
+            return ownerHasPermission;
+          }
+          return true; // Nếu không tìm thấy thông tin user cụ thể, mặc định hiển thị
+        } else {
+          // Đối với standard USER: chỉ được phép nhìn thấy và chấm ảnh của chính họ
+          return img.userId === currentUserId;
+        }
+      })
       .sort((a, b) => {
         const da = parseFloat(a.id);
         const db = parseFloat(b.id);
         if (!isNaN(da) && !isNaN(db)) return da - db;
         return a.id.localeCompare(b.id);
       });
-  }, [images, gradeExamName, activeClass]);
+  }, [images, gradeExamName, activeClass, userHasRecognizeImage, userRole, currentUserId, appUsers, imageCreatorFilter]);
 
   const displayedImages = React.useMemo(() => {
     return examImages.filter((img) => {
@@ -5698,6 +5734,29 @@ export default function App() {
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    {userRole === "ADMIN" && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-blue-600 w-auto text-left whitespace-nowrap">
+                          Người nạp/chấm:
+                        </span>
+                        <select
+                          className="border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-emerald-700"
+                          value={imageCreatorFilter}
+                          onChange={(e) => setImageCreatorFilter(e.target.value)}
+                        >
+                          <option value="ALL">Tất cả tài khoản được quyền</option>
+                          {recognizeAuthorizedUsers.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.username} ({u.role === "ADMIN" ? "Admin" : "GV"})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
                       {!isUserConstrained && (
                         <>
                           <form onSubmit={addClass} className="flex ml-2">
