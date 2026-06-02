@@ -465,19 +465,26 @@ interface CachedImageProps {
   onLoad?: () => void;
   onError?: () => void;
   key?: string | number;
+  fallbackSrc?: string;
 }
 
 const imageMemoryCache: Record<string, string> = {};
 
 const getCachedUrlSync = (src: string): string => {
   if (!src) return "";
-  if (src.startsWith("data:") || src.startsWith("blob:") || src.startsWith("http://localhost")) {
+  if (
+    src.startsWith("data:") || 
+    src.startsWith("blob:") || 
+    src.startsWith("http://localhost") || 
+    src.startsWith("http://127.0.0.1") || 
+    src.indexOf("/local_storage/") !== -1
+  ) {
     return src;
   }
   return imageMemoryCache[src] || "";
 };
 
-const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps) => {
+const CachedImage = ({ src, className, alt, onLoad, onError, fallbackSrc }: CachedImageProps) => {
   const initialUrl = getCachedUrlSync(src);
   const [displaySrc, setDisplaySrc] = useState<string>(initialUrl);
   const [loaded, setLoaded] = useState<boolean>(!!initialUrl);
@@ -523,10 +530,27 @@ const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps)
         }
 
         // 2. Fetch remote
-        const response = await fetch(src, { referrerPolicy: "no-referrer" });
-        if (!response.ok) {
-          throw new Error("HTTP error " + response.status);
+        let currentUrlToFetch = src;
+        let response;
+        try {
+          response = await fetch(currentUrlToFetch, { referrerPolicy: "no-referrer" });
+          if (!response.ok) {
+            throw new Error("HTTP error " + response.status);
+          }
+        } catch (fetchErr) {
+          // If primary URL failed and we have a fallback, try to fetch fallback URL
+          if (fallbackSrc && fallbackSrc !== src) {
+            console.warn("Primary fetch failed, trying fallbackSrc:", fallbackSrc, fetchErr);
+            currentUrlToFetch = fallbackSrc;
+            response = await fetch(currentUrlToFetch, { referrerPolicy: "no-referrer" });
+            if (!response.ok) {
+              throw new Error("HTTP error " + response.status + " on fallback");
+            }
+          } else {
+            throw fetchErr;
+          }
         }
+
         const blob = await response.blob();
 
         try {
@@ -544,7 +568,7 @@ const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps)
       } catch (err) {
         console.error("Failed to load and cache image:", err);
         if (isMounted) {
-          setDisplaySrc(src);
+          setDisplaySrc(fallbackSrc || src);
           // Set loaded to true as we're passing standard URL fallback to img element
           setLoaded(true);
         }
@@ -557,7 +581,7 @@ const CachedImage = ({ src, className, alt, onLoad, onError }: CachedImageProps)
     return () => {
       isMounted = false;
     };
-  }, [src]);
+  }, [src, fallbackSrc]);
 
   if (!src) {
     return (
@@ -3857,16 +3881,41 @@ export default function App() {
   const generateDrawnCanvasUrl = async (item: any): Promise<string | null> => {
     const url = item.imageSrc || item.firebaseImageUrl;
     if (!url) return null;
+
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
+
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = url;
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-    });
+
+    // Build key local URL if running on local storage
+    let preferredUrl = url;
+    if ((localStorageMode || localServerAvailable) && item.id) {
+      const rawPath = `scans/${item.examName || "unknown_exam"}/${item.sessionId || "unknown_session"}/${item.id}.jpg`;
+      const sanitizedFilename = rawPath.replace(/[^a-zA-Z0-9_\.]/g, "_");
+      preferredUrl = `${localServerUrl.replace(/\/$/, "")}/local_storage/images/${sanitizedFilename}`;
+    }
+
+    img.src = preferredUrl;
+    try {
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+    } catch (err) {
+      // If preferred local URL failed and fallback URL exists, try loading the fallback (Cloud URL)
+      if (preferredUrl !== url && url) {
+        console.warn("Local image loading failed in generateDrawnCanvasUrl, trying cloud fallback:", url);
+        img.src = url;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const headerHeight = 90;
     canvas.width = img.width;
@@ -6590,9 +6639,16 @@ export default function App() {
                           <CachedImage
                             key={selectedResult.id}
                             src={
-                              selectedResult.imageSrc ||
-                              selectedResult.firebaseImageUrl
+                              (() => {
+                                if ((localStorageMode || localServerAvailable) && selectedResult.id) {
+                                  const rawPath = `scans/${selectedResult.examName || "unknown_exam"}/${selectedResult.sessionId || "unknown_session"}/${selectedResult.id}.jpg`;
+                                  const sanitizedFilename = rawPath.replace(/[^a-zA-Z0-9_\.]/g, "_");
+                                  return `${localServerUrl.replace(/\/$/, "")}/local_storage/images/${sanitizedFilename}`;
+                                }
+                                return selectedResult.imageSrc || selectedResult.firebaseImageUrl;
+                              })()
                             }
+                            fallbackSrc={selectedResult.firebaseImageUrl || selectedResult.imageSrc}
                             alt="Scanned form"
                             className="w-full h-auto object-contain block relative z-0"
                             onLoad={() => {
@@ -6602,11 +6658,11 @@ export default function App() {
                               setImageLoadingStates(prev => ({ ...prev, [selectedResult.id]: false }));
                             }}
                           />
-                          {imageLoadingStates[selectedResult.id] !== false && !selectedResult.imageSrc && selectedResult.firebaseImageUrl && (
+                          {imageLoadingStates[selectedResult.id] !== false && (selectedResult.imageSrc || selectedResult.firebaseImageUrl) && (
                             <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center p-8 text-center z-10 transition-all duration-200">
                               <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
                               <p className="text-xs text-slate-700 font-bold mb-1 col-span-2">
-                                Đang tải ảnh hiệu chỉnh từ Cloud...
+                                Đang tải ảnh...
                               </p>
                               <p className="text-[10px] text-slate-400 max-w-xs leading-normal">
                                 Vui lòng chờ trong giây lát để tải dữ liệu ảnh chất lượng cao.
