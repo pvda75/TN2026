@@ -470,18 +470,43 @@ interface CachedImageProps {
 
 const imageMemoryCache: Record<string, string> = {};
 
+const resolveLocalUrl = (pathOrUrl: string): string => {
+  if (!pathOrUrl) return "";
+  if (pathOrUrl.startsWith("data:")) return pathOrUrl;
+  
+  const idx = pathOrUrl.indexOf("/local_storage/");
+  if (idx !== -1) {
+    const relativePath = pathOrUrl.substring(idx);
+    const serverUrl = localStorage.getItem("local_server_url") || "http://localhost:3000";
+    return `${serverUrl.replace(/\/$/, "")}${relativePath}`;
+  }
+  return pathOrUrl;
+};
+
+const getLocalServerConstructedUrl = (item: any): string => {
+  if (!item || !item.id) return "";
+  const examFolder = item.examName || "unknown_exam";
+  const classFolder = item.className || item.classId || "unknown_class";
+  const sessionFolder = item.sessionId || "unknown_session";
+  const rawPath = `scans/${examFolder}/${sessionFolder}/${item.id}.jpg`;
+  const sanitizedFilename = rawPath.replace(/[^a-zA-Z0-9_\.]/g, "_");
+  const serverUrl = localStorage.getItem("local_server_url") || "http://localhost:3000";
+  return `${serverUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${encodeURIComponent(classFolder)}/${encodeURIComponent(sanitizedFilename)}`;
+};
+
 const getCachedUrlSync = (src: string): string => {
   if (!src) return "";
+  const resolvedSrc = resolveLocalUrl(src);
   if (
-    src.startsWith("data:") || 
-    src.startsWith("blob:") || 
-    src.startsWith("http://localhost") || 
-    src.startsWith("http://127.0.0.1") || 
-    src.indexOf("/local_storage/") !== -1
+    resolvedSrc.startsWith("data:") || 
+    resolvedSrc.startsWith("blob:") || 
+    resolvedSrc.startsWith("http://") || 
+    resolvedSrc.startsWith("https://") || 
+    resolvedSrc.indexOf("/local_storage/") !== -1
   ) {
-    return src;
+    return resolvedSrc;
   }
-  return imageMemoryCache[src] || "";
+  return imageMemoryCache[resolvedSrc] || "";
 };
 
 const CachedImage = ({ src, className, alt, onLoad, onError, fallbackSrc }: CachedImageProps) => {
@@ -675,14 +700,8 @@ const QueueImageCard = React.memo(({
         {img.src || img.firebaseImageUrl ? (
           <>
             <CachedImage
-              src={
-                img.firebaseImageUrl &&
-                img.firebaseImageUrl.startsWith("http") &&
-                !img.firebaseImageUrl.includes("/local_storage/")
-                  ? img.firebaseImageUrl
-                  : img.src || img.firebaseImageUrl
-              }
-              fallbackSrc={img.firebaseImageUrl || img.src}
+              src={resolveLocalUrl(img.firebaseImageUrl || img.src)}
+              fallbackSrc={resolveLocalUrl(img.firebaseImageUrl || img.src)}
               className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
             />
             {isUploading && (
@@ -3553,14 +3572,15 @@ export default function App() {
       selectedHistoryIds.includes(item.id),
     );
     const newImages = itemsToRescan
-      .filter((i) => i.imageSrc || i.firebaseImageUrl)
+      .filter((i) => i.imageSrc || i.firebaseImageUrl || ((localStorageMode || localServerAvailable) && i.id))
       .map((item) => {
         const newId = Date.now().toString() + Math.random().toString();
         addUnpushedImageId(newId);
         registerCurrentSessionCaptureId(newId);
+        const resolvedSrc = resolveLocalUrl(item.firebaseImageUrl || item.imageSrc) || ((localStorageMode || localServerAvailable) ? getLocalServerConstructedUrl(item) : "");
         return {
           id: newId,
-          src: item.imageSrc || item.firebaseImageUrl,
+          src: resolvedSrc,
           selected: true,
           status: "pending",
           examName: gradeExamName,
@@ -3579,14 +3599,13 @@ export default function App() {
 
   const regradeSingleResultInline = async (resultId: string) => {
     const match = scanHistory.find((i) => i.id === resultId);
-    if (
-      !match ||
-      (!match.imageSrc && !match.originalImageSrc && !match.firebaseImageUrl)
-    )
-      return;
+    if (!match) return;
 
     const sourceImageToProcess =
-      match.originalImageSrc || match.imageSrc || match.firebaseImageUrl;
+      resolveLocalUrl(match.originalImageSrc || match.imageSrc || match.firebaseImageUrl) ||
+      ((localStorageMode || localServerAvailable) ? getLocalServerConstructedUrl(match) : "");
+
+    if (!sourceImageToProcess) return;
 
     setGlobalProcessing(true);
     try {
@@ -3917,8 +3936,12 @@ export default function App() {
   };
 
   const generateDrawnCanvasUrl = async (item: any): Promise<string | null> => {
-    const url = item.imageSrc || item.firebaseImageUrl;
-    if (!url) return null;
+    const url = item.firebaseImageUrl || item.imageSrc || "";
+    let preferredUrl = resolveLocalUrl(url);
+    if (!preferredUrl && item.id && (localStorageMode || localServerAvailable)) {
+      preferredUrl = getLocalServerConstructedUrl(item);
+    }
+    if (!preferredUrl) return null;
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -3927,14 +3950,6 @@ export default function App() {
     const img = new Image();
     img.crossOrigin = "anonymous";
 
-    // Build key local URL if running on local storage
-    let preferredUrl = url;
-    if ((localStorageMode || localServerAvailable) && item.id) {
-      const examFolder = item.examName || "unknown_exam";
-      const classFolder = item.className || item.classId || "unknown_class";
-      preferredUrl = `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${encodeURIComponent(classFolder)}/${item.id}.jpg`;
-    }
-
     img.src = preferredUrl;
     try {
       await new Promise((resolve, reject) => {
@@ -3942,9 +3957,8 @@ export default function App() {
         img.onerror = reject;
       });
     } catch (err) {
-      // If preferred local URL failed and fallback URL exists, try loading the fallback (Cloud URL)
-      if (preferredUrl !== url && url) {
-        console.warn("Local image loading failed in generateDrawnCanvasUrl, trying cloud fallback:", url);
+      if (url && preferredUrl !== url) {
+        console.warn("Local image loading failed in generateDrawnCanvasUrl, trying fallback:", url);
         img.src = url;
         await new Promise((resolve, reject) => {
           img.onload = resolve;
@@ -6611,7 +6625,8 @@ export default function App() {
                         </button>
                         {currentUserData?.role === "ADMIN" &&
                           (selectedResult.imageSrc ||
-                            selectedResult.firebaseImageUrl) && (
+                            selectedResult.firebaseImageUrl ||
+                            ((localStorageMode || localServerAvailable) && selectedResult.id)) && (
                             <button
                               className="bg-red-500 hover:bg-red-600 text-white border-red-600 font-semibold py-1.5 px-3 text-xs rounded-lg shadow-sm transition-colors ml-2"
                               onClick={() => {
@@ -6667,7 +6682,8 @@ export default function App() {
                       </div>
                     </div>
                     {selectedResult.imageSrc ||
-                    selectedResult.firebaseImageUrl ? (
+                    selectedResult.firebaseImageUrl ||
+                    ((localStorageMode || localServerAvailable) && selectedResult.id) ? (
                       <div className="overflow-auto w-full h-[calc(100%-60px)] bg-slate-200/50 rounded-lg border border-slate-200 flex justify-center items-start p-2">
                         <div
                           id="print-area"
@@ -6677,23 +6693,10 @@ export default function App() {
                           <CachedImage
                             key={selectedResult.id}
                             src={
-                              (() => {
-                                if (
-                                  selectedResult.firebaseImageUrl &&
-                                  selectedResult.firebaseImageUrl.startsWith("http") &&
-                                  !selectedResult.firebaseImageUrl.includes("/local_storage/")
-                                ) {
-                                  return selectedResult.firebaseImageUrl;
-                                }
-                                if ((localStorageMode || localServerAvailable) && selectedResult.id) {
-                                  const examFolder = selectedResult.examName || "unknown_exam";
-                                  const classFolder = selectedResult.className || selectedResult.classId || "unknown_class";
-                                  return `${localServerUrl.replace(/\/$/, "")}/local_storage/${encodeURIComponent(examFolder)}/${encodeURIComponent(classFolder)}/${selectedResult.id}.jpg`;
-                                }
-                                return selectedResult.imageSrc || selectedResult.firebaseImageUrl;
-                              })()
+                              resolveLocalUrl(selectedResult.firebaseImageUrl || selectedResult.imageSrc) ||
+                              ((localStorageMode || localServerAvailable) ? getLocalServerConstructedUrl(selectedResult) : "")
                             }
-                            fallbackSrc={selectedResult.firebaseImageUrl || selectedResult.imageSrc}
+                            fallbackSrc={resolveLocalUrl(selectedResult.firebaseImageUrl || selectedResult.imageSrc)}
                             alt="Scanned form"
                             className="w-full h-auto object-contain block relative z-0"
                             onLoad={() => {
@@ -6703,7 +6706,7 @@ export default function App() {
                               setImageLoadingStates(prev => ({ ...prev, [selectedResult.id]: false }));
                             }}
                           />
-                          {imageLoadingStates[selectedResult.id] !== false && (selectedResult.imageSrc || selectedResult.firebaseImageUrl) && (
+                          {imageLoadingStates[selectedResult.id] !== false && (selectedResult.imageSrc || selectedResult.firebaseImageUrl || ((localStorageMode || localServerAvailable) && selectedResult.id)) && (
                             <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center p-8 text-center z-10 transition-all duration-200">
                               <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
                               <p className="text-xs text-slate-700 font-bold mb-1 col-span-2">
