@@ -5,7 +5,8 @@ import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const aiApiKey = process.env.GEMINI_API_KEY;
+const ai = aiApiKey ? new GoogleGenAI({ apiKey: aiApiKey }) : null;
 
 async function startServer() {
   const app = express();

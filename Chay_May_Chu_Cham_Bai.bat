@@ -36,8 +36,8 @@ call npm install
 if errorlevel 1 goto InstallError
 
 :CheckDist
-:: Check dist folder
-if exist dist (
+:: Check dist/server.cjs specifically to verify compilation exists
+if exist dist\server.cjs (
     echo [+] Dang tai lap va cap nhat cau hinh may chu...
     call npm run build:server
 ) else (
@@ -71,8 +71,13 @@ echo.
 echo [+] Dang tu dong khoi chay trinh duyet de tai ung dung...
 start "" cmd /c "ping 127.0.0.1 -n 5 >nul & (start chrome http://localhost:3000 2>nul || start msedge http://localhost:3000 2>nul || start http://localhost:3000)"
 
-:: Execute node server
-call npm run start
+:: Execute node server directly (This prevents premature CMD window closing on npm script termination)
+node dist/server.cjs
+if errorlevel 1 (
+    echo.
+    echo [LOI CHAY MAY CHU] Quynh trinh khoi hanh hoac thuc hien may chu gap su co.
+    echo.
+)
 pause
 exit
 
