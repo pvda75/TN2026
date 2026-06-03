@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
@@ -261,6 +262,62 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+
+    // Tu dong kich hoat trinh duyet khi chay cuc bo tren Windows
+    if (process.platform === "win32") {
+      try {
+        const chromePaths = [
+          path.join(process.env.ProgramFiles || "C:\\Program Files", "Google\\Chrome\\Application\\chrome.exe"),
+          path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Google\\Chrome\\Application\\chrome.exe"),
+          path.join(process.env.LocalAppData || "", "Google\\Chrome\\Application\\chrome.exe")
+        ];
+
+        const edgePaths = [
+          path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Microsoft\\Edge\\Application\\msedge.exe"),
+          path.join(process.env.ProgramFiles || "C:\\Program Files", "Microsoft\\Edge\\Application\\msedge.exe"),
+          path.join(process.env.LocalAppData || "", "Microsoft\\Edge\\Application\\msedge.exe")
+        ];
+
+        let launched = false;
+        const targetUrl = `http://localhost:${PORT}`;
+
+        // Thu mo bang Google Chrome truoc
+        for (const p of chromePaths) {
+          if (fs.existsSync(p)) {
+            console.log(`[Trinh duyet] Dang mo Google Chrome: ${p}`);
+            exec(`"${p}" "${targetUrl}"`, (err) => {
+              if (err) console.error("Chrome launch error:", err);
+            });
+            launched = true;
+            break;
+          }
+        }
+
+        // Neu khong co Chrome thi thu mo bang Microsoft Edge
+        if (!launched) {
+          for (const p of edgePaths) {
+            if (fs.existsSync(p)) {
+              console.log(`[Trinh duyet] Dang mo Microsoft Edge: ${p}`);
+              exec(`"${p}" "${targetUrl}"`, (err) => {
+                if (err) console.error("Edge launch error:", err);
+              });
+              launched = true;
+              break;
+            }
+          }
+        }
+
+        // Du phong neu ca hai deu khong tim thay trong thu muc mac dinh thi dung start cua Windows
+        if (!launched) {
+          console.log(`[Trinh duyet] Dang mo bang trinh duyet mac dinh cua he thong...`);
+          exec(`start ${targetUrl}`, (err) => {
+            if (err) console.error("Default browser launch error:", err);
+          });
+        }
+      } catch (browserError) {
+        console.error("Tu dong mo trinh duyet that bai:", browserError);
+      }
+    }
   });
 }
 

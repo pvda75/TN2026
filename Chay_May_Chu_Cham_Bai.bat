@@ -63,9 +63,9 @@ echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: Kich hoat trinh duyet tu dong va cho doi Server thuc su san sang truoc khi hien thi
-echo [+] Dang khoi chay bo theo doi tu dong de kich hoat trinh duyet...
-start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$port=3000; $connected=$false; for ($i=0; $i -lt 30; $i++) { try { $tcp = New-Object System.Net.Sockets.TcpClient; $tcp.Connect('127.0.0.1', $port); $connected=$true; $tcp.Close(); break; } catch { Start-Sleep -Seconds 1 } }; if ($connected) { $u='http://localhost:3000'; $p=$null; foreach($k in @('HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe','HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe','HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe','HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe')){if(!$p){try{$p=(gp $k -EA SilentlyContinue).'(default)'}catch{}}}; if($p){Start-Process $p $u}else{Start-Process $u} }"
+:: May chu se tu dong kich hoat va mo trinh duyet (Google Chrome / Microsoft Edge) khi hoan tat khoi dong
+echo [+] Dang khoi dong may chu va tu dong mo trinh duyet, vui long cho trong giay lat...
+echo.
 
 :: Execute node server
 call npm run start
