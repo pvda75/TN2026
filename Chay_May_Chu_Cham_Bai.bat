@@ -54,14 +54,16 @@ echo.
 echo =====================================================================
 echo [+] Dang kiem tra va giai phong cong 3000 (neu bi chiem dung)...
 echo =====================================================================
+:: Search process listening on port 3000 and kill it flatly to avoid unescaped pipe parser crash
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr LISTENING ^| findstr :3000') do (
-    echo %%a| findstr /r "^[0-9][0-9]*$" >nul && (
+    if not "%%a" == "" (
         echo [-] Phat hien cong 3000 cua may chu cu dang chay (PID: %%a).
         echo [+] Dang tu dong giai phong cong 3000 de lam moi...
         taskkill /f /pid %%a >nul 2>&1
-        ping -n 2 127.0.0.1 >nul
     )
 )
+:: Small quiet delay to let OS release the port
+ping -n 3 127.0.0.1 >nul
 echo [+] Cong 3000 da san sang de khoi dong ung dung.
 echo.
 
@@ -72,9 +74,9 @@ echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: Tu dong khoi chay trinh duyet trong cua so rieng sau khi server san sang (khoang 3-4 giay)
-echo [+] Dang tu dong khoi chay trinh duyet de tai ung dung...
-start "" cmd /c "ping 127.0.0.1 -n 5 >nul & (start chrome http://localhost:3000 2>nul || start msedge http://localhost:3000 2>nul || start http://localhost:3000)"
+:: Tu dong mo trinh duyet mac dinh cua he thong sau khi cho 3 giay de may chu khoi hanh hoan toan
+echo [+] Dang chuan bi khoi chay tu dong trinh duyet mac dinh de truy cap ung dung...
+start "" cmd /c "ping 127.0.0.1 -n 4 >nul & start http://localhost:3000"
 
 :: Configure Production environment variable so the compiled production server runs flawlessly
 set NODE_ENV=production
