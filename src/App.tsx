@@ -2901,7 +2901,9 @@ export default function App() {
               for (const p of parsed) {
                 const idx = merged.findIndex((m) => m.id === p.id);
                 if (idx === -1) {
-                  merged.push(p);
+                  if (unpushedHistoryIds.current.has(p.id)) {
+                    merged.push(p);
+                  }
                 } else if (p.imageSrc && !merged[idx].imageSrc) {
                   merged[idx] = {
                     ...merged[idx],
@@ -4035,27 +4037,14 @@ export default function App() {
       setSelectedResult(null);
     }
 
-    // Update images to revert status if their result is deleted
+    // Delete corresponding images completely when their graded result is deleted
     setImages((prev) =>
-      prev.map((img) => {
+      prev.filter((img) => {
         if (img.result && selectedHistoryIds.includes(img.result.id)) {
-          if (img.rawAnswers) {
-            return {
-              ...img,
-              status: "scanned",
-              errorMsg: undefined,
-              result: undefined,
-            };
-          } else {
-            return {
-              ...img,
-              status: "pending",
-              errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
-              result: undefined,
-            };
-          }
+          addDeletedImageId(img.id);
+          return false;
         }
-        return img;
+        return true;
       }),
     );
 

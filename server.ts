@@ -204,9 +204,10 @@ async function startServer() {
       // Merge images safely if userId is provided
       if (images !== undefined) {
         if (userId) {
-          const cleanImages = images.map((img: any) => ({ ...img, userId }));
+          const cleanImages = images.map((img: any) => ({ ...img, userId: img.userId || userId }));
+          const sentImageIds = new Set(cleanImages.map((img: any) => img.id));
           dbData.images = [
-            ...dbData.images.filter((img: any) => !img.userId || img.userId !== userId),
+            ...dbData.images.filter((img: any) => !sentImageIds.has(img.id)),
             ...cleanImages
           ];
         } else {
@@ -217,9 +218,10 @@ async function startServer() {
       // Merge history safely if userId is provided
       if (history !== undefined) {
         if (userId) {
-          const cleanHistory = history.map((item: any) => ({ ...item, userId }));
+          const cleanHistory = history.map((item: any) => ({ ...item, userId: item.userId || userId }));
+          const sentHistoryIds = new Set(cleanHistory.map((item: any) => item.id));
           dbData.history = [
-            ...dbData.history.filter((item: any) => !item.userId || item.userId !== userId),
+            ...dbData.history.filter((item: any) => !sentHistoryIds.has(item.id)),
             ...cleanHistory
           ];
         } else {
