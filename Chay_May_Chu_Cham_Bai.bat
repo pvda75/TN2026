@@ -1,5 +1,4 @@
 @echo off
-if "%~1"=="/OPEN" goto OpenBrowserAction
 :: Di chuyen den thu muc chua file bat de chay dung cac tap tin can thiet
 cd /d "%~dp0"
 
@@ -66,7 +65,7 @@ echo.
 
 :: Kich hoat trinh duyet tu dong va cho doi Server thuc su san sang truoc khi hien thi
 echo [+] Dang khoi chay bo theo doi tu dong de kich hoat trinh duyet...
-start /b "" "%~f0" /OPEN
+start "" powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "$port=3000; $connected=$false; for ($i=0; $i -lt 30; $i++) { try { $tcp = New-Object System.Net.Sockets.TcpClient; $tcp.Connect('127.0.0.1', $port); $connected=$true; $tcp.Close(); break; } catch { Start-Sleep -Seconds 1 } }; if ($connected) { $u='http://localhost:3000'; $p=$null; foreach($k in @('HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe','HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe','HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe','HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe')){if(!$p){try{$p=(gp $k -EA SilentlyContinue).'(default)'}catch{}}}; if($p){Start-Process $p $u}else{Start-Process $u} }"
 
 :: Execute node server
 call npm run start
@@ -118,44 +117,5 @@ echo.
 pause
 exit
 
-:OpenBrowserAction
-:: Su dung ping lam thoi gian cho de server co thoi gian khoi dong hoan toan (khoang 4 giay)
-:: Tranh dung 'timeout' vi se bi loi bien moi truong khi chay trong tien trinh nen 'start /b'
-ping -n 5 127.0.0.1 >nul
 
-set "BROWSER_PATH="
-set "BROWSER_NAME="
-
-:: Kiem tra Google Chrome
-if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_PATH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
-    set "BROWSER_NAME=Google Chrome"
-) else if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_PATH=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
-    set "BROWSER_NAME=Google Chrome"
-) else if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
-    set "BROWSER_NAME=Google Chrome"
-)
-
-:: Neu khong tim thay Google Chrome, kiem tra Microsoft Edge
-if not defined BROWSER_PATH (
-    if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
-        set "BROWSER_PATH=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
-        set "BROWSER_NAME=Microsoft Edge"
-    ) else if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
-        set "BROWSER_PATH=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
-        set "BROWSER_NAME=Microsoft Edge"
-    ) else if exist "%LocalAppData%\Microsoft\Edge\Application\msedge.exe" (
-        set "BROWSER_PATH=%LocalAppData%\Microsoft\Edge\Application\msedge.exe"
-        set "BROWSER_NAME=Microsoft Edge"
-    )
-)
-
-if defined BROWSER_PATH (
-    start "" "%BROWSER_PATH%" "http://localhost:3000"
-) else (
-    start http://localhost:3000
-)
-exit
 
