@@ -2315,7 +2315,7 @@ export default function App() {
             if (sessionCacheStr === JSON.stringify(remoteImages)) {
               return prev;
             }
-            const merged = remoteImages
+             const merged = remoteImages
               .filter(
                 (rmtOrig: any) => !deletedImageIds.current.has(rmtOrig.id),
               )
@@ -2323,18 +2323,44 @@ export default function App() {
                 const { isUploadingToFirebase, ...rmt } = rmtOrig;
                 const local = prev.find((p) => p.id === rmt.id);
                 if (local) {
-                  if (
-                    (local as any).isUploadingToFirebase ||
+                  const statusPriorityMap: Record<string, number> = {
+                    pending: 0,
+                    error: 1,
+                    processing: 2,
+                    scanned: 3,
+                    done: 4,
+                  };
+                  const localPriority = statusPriorityMap[local.status] || 0;
+                  const remotePriority = statusPriorityMap[rmt.status] || 0;
+
+                  const keepLocal =
+                    localPriority > remotePriority ||
                     local.status === "processing" ||
-                    unpushedImageIds.current.has(rmt.id)
-                  ) {
-                    return local;
+                    (local as any).isUploadingToFirebase ||
+                    unpushedImageIds.current.has(rmt.id);
+
+                  if (keepLocal) {
+                    return {
+                      ...rmt,
+                      ...local,
+                      src: local.src || rmt.src || "",
+                      processedDataUrl: local.processedDataUrl || rmt.processedDataUrl || "",
+                      warpedDataUrl: local.warpedDataUrl || rmt.warpedDataUrl || "",
+                      result: local.result || rmt.result,
+                      rawAnswers: local.rawAnswers || rmt.rawAnswers,
+                      status: local.status,
+                      errorMsg: local.status === "error" ? (local.errorMsg || rmt.errorMsg) : rmt.errorMsg,
+                    };
                   }
+
                   const hasUrl = rmt.firebaseImageUrl || local.firebaseImageUrl || "";
                   return {
                     ...rmt,
                     firebaseImageUrl: hasUrl,
                     src: hasUrl ? hasUrl : (rmt.src || local.src || ""),
+                    processedDataUrl: rmt.processedDataUrl || local.processedDataUrl || "",
+                    warpedDataUrl: rmt.warpedDataUrl || local.warpedDataUrl || "",
+                    rawAnswers: rmt.rawAnswers || local.rawAnswers,
                     result:
                       local.result || rmt.result
                         ? {
@@ -2764,6 +2790,9 @@ export default function App() {
                     const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
                     if (!currentUser) return !img.userId || img.userId === currentUserId;
                     
+                    // Người dùng thường được đổi tên/SBD cho ảnh do chính mình tải lên mà không bị biến mất
+                    if (img.userId === currentUserId) return true;
+                    
                     const assignedClasses = currentUser.assignedClasses || [];
                     const assignedExams = currentUser.assignedExams || [];
                     
@@ -3183,6 +3212,9 @@ export default function App() {
               const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
               if (!currentUser) return !img.userId || img.userId === currentUserId;
               
+              // Người dùng thường được giữ bài của mình tự tải lên không bị ẩn đi
+              if (img.userId === currentUserId) return true;
+              
               const assignedClasses = currentUser.assignedClasses || [];
               const assignedExams = currentUser.assignedExams || [];
               
@@ -3195,11 +3227,73 @@ export default function App() {
               return true;
             });
             setImages((prev) => {
+              const statusPriorityMap: Record<string, number> = {
+                pending: 0,
+                error: 1,
+                processing: 2,
+                scanned: 3,
+                done: 4,
+              };
+
+              const merged = filteredImages.map((rmt: any) => {
+                const local = prev.find((p) => p.id === rmt.id);
+                if (local) {
+                  const localPriority = statusPriorityMap[local.status] || 0;
+                  const remotePriority = statusPriorityMap[rmt.status] || 0;
+
+                  const keepLocal =
+                    localPriority > remotePriority ||
+                    local.status === "processing" ||
+                    (local as any).isUploadingToFirebase ||
+                    unpushedImageIds.current.has(rmt.id);
+
+                  if (keepLocal) {
+                    return {
+                      ...rmt,
+                      ...local,
+                      src: local.src || rmt.src || "",
+                      processedDataUrl: local.processedDataUrl || rmt.processedDataUrl || "",
+                      warpedDataUrl: local.warpedDataUrl || rmt.warpedDataUrl || "",
+                      result: local.result || rmt.result,
+                      rawAnswers: local.rawAnswers || rmt.rawAnswers,
+                      status: local.status,
+                      errorMsg: local.status === "error" ? (local.errorMsg || rmt.errorMsg) : rmt.errorMsg,
+                    };
+                  } else {
+                    const hasUrl = rmt.firebaseImageUrl || local.firebaseImageUrl || "";
+                    return {
+                      ...rmt,
+                      firebaseImageUrl: hasUrl,
+                      src: hasUrl ? hasUrl : (rmt.src || local.src || ""),
+                      processedDataUrl: rmt.processedDataUrl || local.processedDataUrl || "",
+                      warpedDataUrl: rmt.warpedDataUrl || local.warpedDataUrl || "",
+                      rawAnswers: rmt.rawAnswers || local.rawAnswers,
+                      result: rmt.result || local.result
+                        ? {
+                            ...(rmt.result || {}),
+                            ...(local.result || {}),
+                            imageSrc: hasUrl ? hasUrl : (local.result?.imageSrc || rmt.result?.imageSrc || ""),
+                            originalImageSrc: hasUrl ? "" : (local.result?.originalImageSrc || rmt.result?.originalImageSrc || ""),
+                          }
+                        : rmt.result,
+                    };
+                  }
+                }
+                return rmt;
+              });
+
+              // Keep local-only images
+              const localOnly = prev.filter(
+                (p) => !filteredImages.some((r: any) => r.id === p.id) && !deletedImageIds.current.has(p.id)
+              );
+
+              const finalImages = [...merged, ...localOnly];
               const prevStr = JSON.stringify(prev);
-              const dbStr = JSON.stringify(filteredImages);
-              if (prevStr === dbStr) return prev;
+              const finalStr = JSON.stringify(finalImages);
+              if (prevStr === finalStr) return prev;
+
               lastSyncedImagesRef.current = filteredImages;
-              return filteredImages;
+              return finalImages;
             });
           }
           // Update global OMR config if changed
