@@ -37,14 +37,17 @@ if errorlevel 1 goto InstallError
 
 :CheckDist
 :: Check dist/server.cjs specifically to verify compilation exists
-if exist dist\server.cjs (
-    echo [+] Dang tai lap va cap nhat cau hinh may chu...
-    call npm run build:server
-) else (
-    echo [+] Dang khoi tao ban du lieu build toi uu...
-    call npm run build
-)
+if exist dist\server.cjs goto UpdateServer
+echo [+] Dang khoi tao ban du lieu build toi uu...
+call npm run build
 if errorlevel 1 goto BuildError
+goto StartServer
+
+:UpdateServer
+echo [+] Dang tai lap va cap nhat cau hinh may chu...
+call npm run build:server
+if errorlevel 1 goto BuildError
+goto StartServer
 
 :StartServer
 echo.
@@ -71,8 +74,11 @@ echo.
 echo [+] Dang tu dong khoi chay trinh duyet de tai ung dung...
 start "" cmd /c "ping 127.0.0.1 -n 5 >nul & (start chrome http://localhost:3000 2>nul || start msedge http://localhost:3000 2>nul || start http://localhost:3000)"
 
+:: Configure Production environment variable so the compiled production server runs flawlessly
+set NODE_ENV=production
+
 :: Execute node server directly (This prevents premature CMD window closing on npm script termination)
-node dist/server.cjs
+node dist\server.cjs
 if errorlevel 1 (
     echo.
     echo [LOI CHAY MAY CHU] Quynh trinh khoi hanh hoac thuc hien may chu gap su co.
