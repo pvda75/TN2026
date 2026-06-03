@@ -42,18 +42,28 @@ export const waitForOpenCV = (): Promise<void> => {
     ];
 
     let currentCdnIndex = 0;
-    let scriptElement: HTMLScriptElement | null = document.querySelector('script[src*="opencv.js"]') as HTMLScriptElement;
+
+    // Gỡ mọi script opencv cũ để nạp mới hoàn toàn, tránh sự kiện onerror cũ đã kích hoạt trước đó
+    const oldScripts = document.querySelectorAll('script[src*="opencv.js"]');
+    oldScripts.forEach((s) => {
+      try {
+        s.parentNode?.removeChild(s);
+      } catch (err) {
+        console.warn("[OpenCV Loader] Không thể gỡ bỏ script cũ:", err);
+      }
+    });
+
+    let scriptElement: HTMLScriptElement | null = null;
 
     // Hàm thực hiện nạp script từ CDN
     const loadScript = (url: string) => {
-      console.log(`[OpenCV Loader] Đang thử tải OpenCV từ CDN: ${url}`);
+      console.log(`[OpenCV Loader] Đang tiến hành nạp OpenCV từ nguồn: ${url}`);
       
-      // Nếu đã có thẻ script cũ bị lỗi/chưa xong, xoá nó để nạp lại thẻ mới sạch sẽ
       if (scriptElement && scriptElement.parentNode) {
         try {
           scriptElement.parentNode.removeChild(scriptElement);
         } catch (e) {
-          console.warn("[OpenCV Loader] Không thể gỡ thẻ script cũ:", e);
+          console.warn("[OpenCV Loader] Không thể xóa thẻ tạm thời:", e);
         }
       }
 
@@ -63,31 +73,21 @@ export const waitForOpenCV = (): Promise<void> => {
       scriptElement.async = true;
 
       scriptElement.onerror = () => {
-        console.warn(`[OpenCV Loader] Tải thất bại từ nguồn: ${url}`);
+        console.warn(`[OpenCV Loader] Nạp thất bại từ nguồn: ${url}, chuyển sang nguồn tiếp theo...`);
         currentCdnIndex++;
         if (currentCdnIndex < cdnUrls.length) {
           loadScript(cdnUrls[currentCdnIndex]);
         } else {
           clearInterval(checkInterval);
-          reject(new Error("Lỗi kết nối: Các máy chủ CDN tải OpenCV đều không phản hồi. Vui lòng kiểm tra lại mạng Internet hoặc thử lại sau!"));
+          reject(new Error("Lỗi kết nối: Không thể nạp được thư viện OpenCV.js từ bất kỳ nguồn cục bộ hay máy chủ CDN quốc tế nào. Xin vui lòng kiểm tra lại kết nối mạng Internet hoặc khởi chạy lại máy chủ cục bộ!"));
         }
       };
 
       document.head.appendChild(scriptElement);
     };
 
-    // Nếu trên trang chưa có thẻ script OpenCV nào, ta chủ động tạo tải từ nguồn tối ưu đầu tiên
-    if (!scriptElement) {
-      loadScript(cdnUrls[0]);
-    } else {
-      // Nếu có sẵn thẻ script nhưng chưa load được, nếu quá lâu vẫn rảnh, ta bắt đầu kích hoạt cơ chế fallback dự phòng
-      // Thẻ có sẵn mặc định lấy từ index.html (đã cấu hình cdnjs trước đó)
-      scriptElement.onerror = () => {
-        console.warn("[OpenCV Loader] Thẻ script mặc định bị lỗi, chuyển sang nạp dự phòng...");
-        currentCdnIndex = 1; // Nhảy ngay sang CDN dự phòng thứ 2
-        loadScript(cdnUrls[currentCdnIndex]);
-      };
-    }
+    // Bắt đầu tải từ CDN / nguồn đầu tiên
+    loadScript(cdnUrls[0]);
 
     // Thiết lập vòng lặp kiểm tra định kỳ xem đối tượng cv và cv.Mat đã khởi động thành công chưa (WASM setup complete)
     let elapsed = 0;
@@ -100,11 +100,18 @@ export const waitForOpenCV = (): Promise<void> => {
         resolve();
       } else if (elapsed >= timeout) {
         clearInterval(checkInterval);
-        reject(new Error("Không thể tải thư viện xử lý ảnh OpenCV (Thời gian tải quá 30 giây). Vui lòng làm mới trang (F5) hoặc kiểm tra chất lượng đường truyền mạng của bạn!"));
+        reject(new Error("Không thể khởi tạo thư viện OpenCV (Quá thời gian chờ 30 giây). Vui lòng tải lại trang (F5) hoặc đổi trình duyệt/máy tính để có tài nguyên phần cứng tốt hơn!"));
       }
     }, 500);
   });
 };
+
+// Kích hoạt nạp thử OpenCV ngay khi ứng dụng khởi chạy trong nền để tối ưu tài nguyên trước khi người dùng nhấn nút nhận diện
+setTimeout(() => {
+  waitForOpenCV().catch((err) => {
+    console.log("[OpenCV Prefetch] Chưa khởi tạo xong OpenCV tự động trong nền (Sẽ chạy lại khi bắt đầu chấm):", err.message);
+  });
+}, 2000);
 
 export const processOMR = async (imageCanvas: HTMLCanvasElement, config: OMRConfig, referenceImages: string[] = []) => {
   await waitForOpenCV();

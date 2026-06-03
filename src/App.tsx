@@ -4880,8 +4880,8 @@ export default function App() {
       );
 
       try {
-        // Tiền xử lý ảnh
-        const processedDataUrl = await new Promise<string>((resolve) => {
+        // Tiền xử lý ảnh (Đã bổ sung bộ chặn lỗi onerror và cảnh báo Mixed Content thông minh)
+        const processedDataUrl = await new Promise<string>((resolve, reject) => {
           const img = new Image();
           img.crossOrigin = "anonymous";
           img.onload = () => {
@@ -4915,6 +4915,15 @@ export default function App() {
               resolve(image.src);
             }
           };
+          img.onerror = () => {
+            let detail = "Không thể đọc/nạp tập chất lượng ảnh này.";
+            if (window.location.protocol === "https:" && image.src?.startsWith("http://")) {
+              detail += " Trình duyệt bảo mật HTTPS đã ngăn chặn nạp tài nguyên HTTP của máy chủ cục bộ (localhost). Vui lòng đổi sang chạy ứng dụng hoàn toàn qua liên kết HTTP http://localhost:3000 hoặc dùng mạng cục bộ.";
+            } else {
+              detail += " Xin hãy đổi định dạng ảnh hoặc kiểm tra quyền đọc file của ổ cứng.";
+            }
+            reject(new Error(detail));
+          };
           img.src = image.src;
         });
 
@@ -4926,12 +4935,13 @@ export default function App() {
 
         const canvas = document.createElement("canvas");
         const imgEl = new Image();
-        await new Promise((res) => {
-          imgEl.onload = res;
+        await new Promise<void>((res) => {
+          imgEl.onload = () => res();
+          imgEl.onerror = () => res(); // Không bao giờ cho phép treo luồng xử lý
           imgEl.src = processedDataUrl;
         });
-        canvas.width = imgEl.width;
-        canvas.height = imgEl.height;
+        canvas.width = imgEl.width || 100;
+        canvas.height = imgEl.height || 100;
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(imgEl, 0, 0);
 
