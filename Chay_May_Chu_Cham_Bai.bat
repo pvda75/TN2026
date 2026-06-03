@@ -52,7 +52,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr LISTENING ^| findstr :3000') 
     echo [-] Phat hien cong 3000 cua may chu cu dang chay (PID: %%a).
     echo [+] Dang tu dong giai phong cong 3000 de lam moi...
     taskkill /f /pid %%a >nul 2>&1
-    timeout /t 1 /nobreak >nul
+    ping -n 2 127.0.0.1 >nul
 )
 echo [+] Cong 3000 da san sang de khoi dong ung dung.
 echo.
@@ -119,8 +119,9 @@ pause
 exit
 
 :OpenBrowserAction
-:: Cho gia tri timeout de server khoi dong hoan tat (khoang 3 giay)
-timeout /t 3 /nobreak >nul
+:: Su dung ping lam thoi gian cho de server co thoi gian khoi dong hoan toan (khoang 4 giay)
+:: Tranh dung 'timeout' vi se bi loi bien moi truong khi chay trong tien trinh nen 'start /b'
+ping -n 5 127.0.0.1 >nul
 
 set "BROWSER_PATH="
 set "BROWSER_NAME="
