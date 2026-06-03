@@ -63,47 +63,9 @@ echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: Auto open main page in Google Chrome or Microsoft Edge (Fallback to default if not found)
-timeout /t 1 /nobreak >nul
-echo [+] Dang kiem tra va khoi chay tren trinh duyet phu hop (Google Chrome / Microsoft Edge)...
-set "BROWSER_PATH="
-set "BROWSER_NAME="
-
-:: Kiem tra Google Chrome truoc
-if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_PATH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
-    set "BROWSER_NAME=Google Chrome"
-) else if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_PATH=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
-    set "BROWSER_NAME=Google Chrome"
-) else if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" (
-    set "BROWSER_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
-    set "BROWSER_NAME=Google Chrome"
-)
-
-:: Neu khong tim thay Chrome, kiem tra Microsoft Edge
-if not defined BROWSER_PATH (
-    if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
-        set "BROWSER_PATH=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
-        set "BROWSER_NAME=Microsoft Edge"
-    ) else if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" (
-        set "BROWSER_PATH=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
-        set "BROWSER_NAME=Microsoft Edge"
-    ) else if exist "%LocalAppData%\Microsoft\Edge\Application\msedge.exe" (
-        set "BROWSER_PATH=%LocalAppData%\Microsoft\Edge\Application\msedge.exe"
-        set "BROWSER_NAME=Microsoft Edge"
-    )
-)
-
-if defined BROWSER_PATH (
-    echo [+] Da phat hien %BROWSER_NAME% tai: %BROWSER_PATH%
-    echo [+] Dang tu dong mo ung dung bang %BROWSER_NAME%...
-    start "" "%BROWSER_PATH%" "http://localhost:3000"
-) else (
-    echo [-] Khong tim thay Google Chrome hoac Microsoft Edge tai cac thu muc mac dinh.
-    echo [+] Su dung trinh duyet mac dinh cua he thong Windows de khoi chay...
-    start http://localhost:3000
-)
+:: Kich hoat trinh duyet tu dong va cho doi Server thuc su san sang truoc khi hien thi
+echo [+] Dang khoi chay bo theo doi tu dong de kich hoat trinh duyet...
+start /b powershell -NoProfile -ExecutionPolicy Bypass -Command "$port=3000; $connected=$false; for ($i=0; $i -lt 30; $i++) { try { $tcp = New-Object System.Net.Sockets.TcpClient; $tcp.Connect('127.0.0.1', $port); $connected=$true; $tcp.Close(); break; } catch { Start-Sleep -Seconds 1 } }; if ($connected) { $c1 = Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'; $c2 = Join-Path ($env:ProgramFiles + ' (x86)') 'Google\Chrome\Application\chrome.exe'; $e1 = Join-Path ($env:ProgramFiles + ' (x86)') 'Microsoft\Edge\Application\msedge.exe'; if (Test-Path $c1) { Start-Process $c1 'http://localhost:3000' } elseif (Test-Path $c2) { Start-Process $c2 'http://localhost:3000' } elseif (Test-Path $e1) { Start-Process $e1 'http://localhost:3000' } else { Start-Process 'http://localhost:3000' } }"
 
 :: Execute node server
 call npm run start
