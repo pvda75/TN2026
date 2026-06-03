@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import https from "https";
 import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -8,9 +9,69 @@ import { GoogleGenAI } from "@google/genai";
 const aiApiKey = process.env.GEMINI_API_KEY;
 const ai = aiApiKey ? new GoogleGenAI({ apiKey: aiApiKey }) : null;
 
+// Hàm tự động kiểm tra và tải opencv.js về thư mục public cục bộ để chấm offline
+const downloadOpencvLocal = () => {
+  const publicDir = path.join(process.cwd(), "public");
+  if (!fs.existsSync(publicDir)) {
+    fs.mkdirSync(publicDir, { recursive: true });
+  }
+  const opencvPath = path.join(publicDir, "opencv.js");
+
+  // Kiểm tra kích thước file (file chính xác của cdnjs thường > 8MB hoặc ~24MB)
+  if (fs.existsSync(opencvPath) && fs.statSync(opencvPath).size > 1000000) {
+    console.log("[OMR Setup] Thư viện opencv.js đã tồn tại đầy đủ trong thư mục public.");
+    return;
+  }
+
+  console.log("[OMR Setup] opencv.js chưa có hoặc lỗi kích thước. Tiến hành tải tự động về máy cục bộ...");
+  const url = "https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.8.0/opencv.js";
+
+  const downloadFile = (downloadUrl: string, dest: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(dest);
+      https.get(downloadUrl, (response) => {
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          downloadFile(response.headers.location!, dest).then(resolve).catch(reject);
+          return;
+        }
+        if (response.statusCode !== 200) {
+          reject(new Error(`Lỗi tải: ${response.statusCode}`));
+          return;
+        }
+        response.pipe(file);
+        file.on("finish", () => {
+          file.close(() => resolve());
+        });
+      }).on("error", (err) => {
+        fs.unlink(dest, () => {});
+        reject(err);
+      });
+    });
+  };
+
+  downloadFile(url, opencvPath)
+    .then(() => {
+      console.log("[OMR Setup] Hoàn thành: Đã lưu opencv.js thành công vào máy cục bộ để chấm offline!");
+    })
+    .catch((err) => {
+      console.warn("[OMR Setup] Không thể tải opencv.js cục bộ tự động trong nền (Sẽ tự động nạp CDN thay thế khi có mạng):", err.message);
+    });
+};
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Enable CORS manually for all endpoints to allow secure frontend connection from any origin
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   app.use(express.json({ limit: "100mb" }));
   app.use(express.urlencoded({ limit: "100mb", extended: true }));
@@ -206,6 +267,15 @@ async function startServer() {
     return null;
   };
 
+  // Route phục vụ trực tiếp file opencv.js từ thư mục public để đảm bảo tính sẵn sàng tối đa
+  app.get("/opencv.js", (req, res, next) => {
+    const opencvPath = path.join(process.cwd(), "public", "opencv.js");
+    if (fs.existsSync(opencvPath)) {
+      return res.sendFile(opencvPath);
+    }
+    next();
+  });
+
   // Serve local storage manually with robust decoding and automatic queue/history suffix matching fallback
   app.get("/local_storage/*", (req, res, next) => {
     try {
@@ -263,6 +333,9 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    
+    // Tự động kiểm tra và tải thư viện xử lý ảnh OMR trong nền để chấm offline
+    downloadOpencvLocal();
 
     // Tu dong kich hoat trinh duyet khi chay cuc bo tren Windows
     if (process.platform === "win32") {

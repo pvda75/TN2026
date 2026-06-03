@@ -34,6 +34,7 @@ export const waitForOpenCV = (): Promise<void> => {
     }
 
     const cdnUrls = [
+      "/opencv.js",
       "https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.8.0/opencv.js",
       "https://cdn.jsdelivr.net/npm/@techstardna/opencv-js@4.8.0-release.1/opencv.js",
       "https://unpkg.com/opencv.js@4.8.0/opencv.js",
