@@ -13,11 +13,7 @@ echo.
 echo [+] Dang kiem tra moi truong may tinh cua ban...
 echo.
 
-:: Checking node.js in path via where
-where node >nul 2>&1
-if errorlevel 1 goto NoNode
-
-:: Double check with node -v
+:: Checking node.js in path via node -v
 node -v >nul 2>&1
 if errorlevel 1 goto NoNode
 
@@ -32,21 +28,21 @@ echo [+] Da xac nhan Node.js co san tren may tinh.
 echo [+] Dang chuan bi khoi dong he thong, vui long cho...
 echo.
 
-:: Install dependencies if node_modules does not exist
-if not exist node_modules (
-    echo [+] Dang tai va cai dat cac thu vien bo tro [Chi can chay lan dau]...
-    echo [*] Luu y: Vui long giu ket noi Internet on dinh trong giay lat.
-    call npm install
-    if errorlevel 1 goto InstallError
-)
+:: Check node_modules folder
+if exist node_modules goto CheckDist
+echo [+] Dang tai va cai dat cac thu vien bo tro [Chi can chay lan dau]...
+echo [*] Luu y: Vui long giu ket noi Internet on dinh trong giay lat.
+call npm install
+if errorlevel 1 goto InstallError
 
-:: Run build if dist folder doesn't exist
-if not exist dist (
-    echo [+] Dang khoi tao ban du lieu build toi uu...
-    call npm run build
-    if errorlevel 1 goto BuildError
-)
+:CheckDist
+:: Check dist folder
+if exist dist goto StartServer
+echo [+] Dang khoi tao ban du lieu build toi uu...
+call npm run build
+if errorlevel 1 goto BuildError
 
+:StartServer
 echo.
 echo =====================================================================
 echo  [*] MAY CHU DANG HOAT DONG!

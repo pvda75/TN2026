@@ -1845,12 +1845,8 @@ export default function App() {
           }
           return true; // Nếu không tìm thấy thông tin user cụ thể, mặc định hiển thị
         } else {
-          // Đối với standard USER: chỉ được phép nhìn thấy và chấm ảnh của chính họ, ảnh chưa có userId, hoặc ảnh do tài khoản quản trị (ADMIN) tải lên
-          if (!img.userId) return true;
-          if (img.userId === currentUserId) return true;
-          const imageOwner = appUsers.find((u) => u.id === img.userId || u.username === img.userId);
-          const isOwnerAdmin = img.userId === "admin" || imageOwner?.role === "ADMIN";
-          return isOwnerAdmin;
+          // Đối với standard USER: chỉ cần ảnh thuộc quyền phân quyền Lớp/Phòng đó (đã qua lọc activeClass & gradeExamName rồi)
+          return true;
         }
       })
       .sort((a, b) => {
@@ -2737,22 +2733,47 @@ export default function App() {
                   // Filter by role: Admin sees everything, standard user sees their own + items uploaded by admins
                   const filteredHistory = parsedHistory.filter((item: any) => {
                     if (userRole === "ADMIN") return true;
-                    if (!item.userId || item.userId === currentUserId || item.userId === "admin") return true;
                     const usersList = dbData.users || appUsers;
-                    const owner = usersList.find((u: any) => u.id === item.userId || u.username === item.userId);
-                    return owner?.role === "ADMIN";
+                    const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
+                    if (!currentUser) return !item.userId || item.userId === currentUserId;
+                    
+                    const assignedClasses = currentUser.assignedClasses || [];
+                    const assignedExams = currentUser.assignedExams || [];
+                    const assignedSessions = currentUser.assignedSessions || [];
+                    
+                    if (assignedClasses.length > 0) {
+                      if (!item.className || !assignedClasses.includes(item.className)) return false;
+                    }
+                    if (assignedExams.length > 0) {
+                      if (!item.examName || !assignedExams.includes(item.examName)) return false;
+                    }
+                    if (assignedSessions.length > 0) {
+                      const itemSessionId = item.sessionId || "SESSION_DEFAULT";
+                      if (!assignedSessions.includes(itemSessionId)) return false;
+                    }
+                    return true;
                   });
                   lastSyncedHistoryRef.current = filteredHistory;
                   setScanHistory(filteredHistory);
                 }
                 if (dbData.images && Array.isArray(dbData.images)) {
-                  // Filter by role: Admin sees everything, standard user sees their own + admin-uploaded images
+                  // Filter by role: Admin sees everything, standard user sees their own + assigned class/exam images
                   const filteredImages = dbData.images.filter((img: any) => {
                     if (userRole === "ADMIN") return true;
-                    if (!img.userId || img.userId === currentUserId || img.userId === "admin") return true;
                     const usersList = dbData.users || appUsers;
-                    const owner = usersList.find((u: any) => u.id === img.userId || u.username === img.userId);
-                    return owner?.role === "ADMIN";
+                    const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
+                    if (!currentUser) return !img.userId || img.userId === currentUserId;
+                    
+                    const assignedClasses = currentUser.assignedClasses || [];
+                    const assignedExams = currentUser.assignedExams || [];
+                    
+                    if (assignedClasses.length > 0) {
+                      if (!img.classId || !assignedClasses.includes(img.classId)) return false;
+                    }
+                    if (assignedExams.length > 0) {
+                      if (!img.examName || !assignedExams.includes(img.examName)) return false;
+                    }
+                    return true;
                   });
                   lastSyncedImagesRef.current = filteredImages;
                   setImages(filteredImages);
@@ -3126,10 +3147,25 @@ export default function App() {
             });
             const filteredHistory = parsedHistory.filter((item: any) => {
               if (userRole === "ADMIN") return true;
-              if (!item.userId || item.userId === currentUserId || item.userId === "admin") return true;
               const usersList = dbData.users || appUsers;
-              const owner = usersList.find((u: any) => u.id === item.userId || u.username === item.userId);
-              return owner?.role === "ADMIN";
+              const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
+              if (!currentUser) return !item.userId || item.userId === currentUserId;
+              
+              const assignedClasses = currentUser.assignedClasses || [];
+              const assignedExams = currentUser.assignedExams || [];
+              const assignedSessions = currentUser.assignedSessions || [];
+              
+              if (assignedClasses.length > 0) {
+                if (!item.className || !assignedClasses.includes(item.className)) return false;
+              }
+              if (assignedExams.length > 0) {
+                if (!item.examName || !assignedExams.includes(item.examName)) return false;
+              }
+              if (assignedSessions.length > 0) {
+                const itemSessionId = item.sessionId || "SESSION_DEFAULT";
+                if (!assignedSessions.includes(itemSessionId)) return false;
+              }
+              return true;
             });
             setScanHistory((prev) => {
               const prevStr = JSON.stringify(prev.map(p => ({ ...p, timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp })));
@@ -3143,10 +3179,20 @@ export default function App() {
           if (dbData.images && Array.isArray(dbData.images)) {
             const filteredImages = dbData.images.filter((img: any) => {
               if (userRole === "ADMIN") return true;
-              if (!img.userId || img.userId === currentUserId || img.userId === "admin") return true;
               const usersList = dbData.users || appUsers;
-              const owner = usersList.find((u: any) => u.id === img.userId || u.username === img.userId);
-              return owner?.role === "ADMIN";
+              const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
+              if (!currentUser) return !img.userId || img.userId === currentUserId;
+              
+              const assignedClasses = currentUser.assignedClasses || [];
+              const assignedExams = currentUser.assignedExams || [];
+              
+              if (assignedClasses.length > 0) {
+                if (!img.classId || !assignedClasses.includes(img.classId)) return false;
+              }
+              if (assignedExams.length > 0) {
+                if (!img.examName || !assignedExams.includes(img.examName)) return false;
+              }
+              return true;
             });
             setImages((prev) => {
               const prevStr = JSON.stringify(prev);
@@ -3636,6 +3682,10 @@ export default function App() {
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (userRole === "ADMIN") {
+      alert("Tài khoản quản trị admin không có quyền tải ảnh lên.");
+      return;
+    }
     const files = event.target.files;
     if (files && files.length > 0) {
       setGlobalProcessing(true);
@@ -6064,7 +6114,11 @@ export default function App() {
                     </div>
 
                     {!scannerConfig.show && (
-                      userHasRecognizeImage ? (
+                      userRole === "ADMIN" ? (
+                        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-sm font-medium text-center mb-4">
+                          ⚠️ Tài khoản Quản trị (Admin) không có quyền tải tập tin ảnh lên hệ thống.
+                        </div>
+                      ) : userHasRecognizeImage ? (
                         <div className="border border-solid border-slate-200 rounded-lg bg-slate-50/50 p-6 text-center rounded-2xl mb-4 flex flex-col sm:flex-row justify-center gap-3">
                           <button
                             onClick={() => fileInputRef.current?.click()}
