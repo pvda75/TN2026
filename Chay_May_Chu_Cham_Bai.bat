@@ -1,4 +1,6 @@
 @echo off
+:: Thiet lap bang ma UTF-8 de hien thi tieng Viet khong dung va dam bao ma bat khong bi loi paring
+chcp 65001 >nul
 :: Di chuyen den thu muc chua file bat de chay dung cac tap tin can thiet
 cd /d "%~dp0"
 
@@ -54,15 +56,9 @@ echo.
 echo =====================================================================
 echo [+] Dang kiem tra va giai phong cong 3000 (neu bi chiem dung)...
 echo =====================================================================
-:: Search process listening on port 3000 and kill it flatly to avoid unescaped pipe parser crash
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr LISTENING ^| findstr :3000') do (
-    if not "%%a" == "" (
-        echo [-] Phat hien cong 3000 cua may chu cu dang chay (PID: %%a).
-        echo [+] Dang tu dong giai phong cong 3000 de lam moi...
-        taskkill /f /pid %%a >nul 2>&1
-    )
-)
-:: Small quiet delay to let OS release the port
+:: Giai phong cong 3000 bang PowerShell (Giai phat hien dai, khong can phan tich ky tu de tranh loi up-pipe lam CMD dong cua)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+:: Cho 2 giay de he dieu hanh hoan toan giai phong port
 ping -n 3 127.0.0.1 >nul
 echo [+] Cong 3000 da san sang de khoi dong ung dung.
 echo.
@@ -74,29 +70,32 @@ echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: Tu dong mo trinh duyet mac dinh cua he thong sau khi cho 3 giay de may chu khoi hanh hoan toan
-echo [+] Dang chuan bi khoi chay tu dong trinh duyet mac dinh de truy cap ung dung...
+:: Tu dong mo trinh duyet mac dinh cua he thong sau 3 giay khi may chu da khoi tao hoan tat
+echo [+] Dang chuan bi khoi chay tu dong trinh duyet de truy cap ung dung...
 start "" cmd /c "ping 127.0.0.1 -n 4 >nul & start http://localhost:3000"
 
 :: Configure Production environment variable so the compiled production server runs flawlessly
 set NODE_ENV=production
 
-:: Execute node server safely using call (This prevents premature CMD window closing on termination/crash)
-echo [+] Dang khoi dong may chu va duy tri hoat dong...
-call node dist\server.cjs
-if errorlevel 1 (
-    echo.
-    echo [LOI CHAY MAY CHU] Quy trinh khoi chay hoac thuc hien may chu gap su co.
-    echo * Vui long kiem tra xem phien ban Node.js da duoc cai dat dung cach chua.
-    echo * Dam bao ban run file .bat nay tinh tu thu muc chua ung dung.
-    echo.
-) else (
-    echo.
-    echo [+] May chu da dung hoat dong.
-    echo.
-)
-pause
-exit
+:: Chay may chu Node truc tiep (Khoi chay file da build dist\server.cjs)
+echo [+] Dang tien hanh khoi chay may chu cham thi... (De dung may chu, nhap Ctrl+C tren cua so nay)
+node dist\server.cjs
+if errorlevel 1 goto ServerError
+
+echo.
+echo [+] May chu da dung hoat dong.
+goto EndOfScript
+
+:ServerError
+echo.
+echo =====================================================================
+echo  [LOI] QUY TRINH KHOI CHAY MAY CHU GAP SU CO!
+echo =====================================================================
+echo * Vui long xac minh Node.js da duoc cai dat (Kiem tra bang cach go: node -v)
+echo * Dam bao ban copy toan bo thu muc ung dung nay ra o dia Local (vi du Desktop/o C/o D) truoc khi chay.
+echo * Thu xoa thu muc node_modules va chay lai file nay de no tu dong tai lai.
+echo.
+goto EndOfScript
 
 :NoNode
 color 0C
@@ -121,10 +120,10 @@ echo.
 echo  Buoc 4: Sau khi hoan tat cai dat, hay chay lai file .bat nay!
 echo ---------------------------------------------------------------------
 echo.
-echo [*] Nhan nut BAT KY tren ban phim de tu dong mo link tai Node.js...
+echo [*] Nhan phim bat ky de tu dong mo link tai Node.js thong qua trinh duyet...
 pause
 start https://nodejs.org/
-exit
+goto EndOfScript
 
 :InstallError
 color 0C
@@ -132,16 +131,25 @@ echo.
 echo [LOI] Qua trinh nap va cai dat thu vien gap su co (npm install gap loi).
 echo Vui long kiem tra lai ket noi Internet tren may va chay lai file .bat nay.
 echo.
-pause
-exit
+goto EndOfScript
 
 :BuildError
 color 0C
 echo.
 echo [LOI] Qua trinh dong goi ung dung co loi xay ra (npm run build gap loi).
 echo.
+goto EndOfScript
+
+:EndOfScript
+echo.
+echo =====================================================================
+echo  [*] CUA SO NAY DUOC TIEP TUC GIU LAI DE BAN THEO DOI LOGS CHAY!
+echo  [*] Neu muon ket thuc hoan toan hoat dong cua may chu, hay dong cua so nay.
+echo =====================================================================
+echo.
 pause
-exit
+:: Lenh duoi day se lam cho cua so CMD khong bao gio bi tu dong close, bat ke may chu xay ra loi gi!
+cmd /k
 
 
 
