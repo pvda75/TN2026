@@ -45,6 +45,18 @@ if errorlevel 1 goto BuildError
 :StartServer
 echo.
 echo =====================================================================
+echo [+] Dang kiem tra va giai phong cong 3000 (neu bi chiem dung)...
+echo =====================================================================
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr LISTENING ^| findstr :3000') do (
+    echo [-] Phat hien cong 3000 cua may chu cu dang chay (PID: %%a).
+    echo [+] Dang tu dong giai phong cong 3000 de lam moi...
+    taskkill /f /pid %%a >nul 2>&1
+    timeout /t 1 /nobreak >nul
+)
+echo [+] Cong 3000 da san sang de khoi dong ung dung.
+echo.
+
+echo =====================================================================
 echo  [*] MAY CHU DANG HOAT DONG!
 echo  [*] Dia chi de ban truy cap tren may nay: http://localhost:3000
 echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
@@ -52,7 +64,7 @@ echo =====================================================================
 echo.
 
 :: Auto open main page in default browser
-timeout /t 2 /nobreak >nul
+timeout /t 1 /nobreak >nul
 start http://localhost:3000
 
 :: Execute node server
