@@ -37,9 +37,13 @@ if errorlevel 1 goto InstallError
 
 :CheckDist
 :: Check dist folder
-if exist dist goto StartServer
-echo [+] Dang khoi tao ban du lieu build toi uu...
-call npm run build
+if exist dist (
+    echo [+] Dang tai lap va cap nhat cau hinh may chu...
+    call npm run build:server
+) else (
+    echo [+] Dang khoi tao ban du lieu build toi uu...
+    call npm run build
+)
 if errorlevel 1 goto BuildError
 
 :StartServer
@@ -63,9 +67,9 @@ echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: May chu se tu dong kich hoat va mo trinh duyet (Google Chrome / Microsoft Edge) khi hoan tat khoi dong
-echo [+] Dang khoi dong may chu va tu dong mo trinh duyet, vui long cho trong giay lat...
-echo.
+:: Du phong kich hoat trinh duyet tu dong phia cmd song song voi server-side trigger
+echo [+] Dang tu dong khoi chay trinh duyet (Google Chrome / Microsoft Edge)...
+start /b cmd /c "ping 127.0.0.1 -n 4 >nul && (start chrome http://localhost:3000 2>nul || start msedge http://localhost:3000 2>nul || start http://localhost:3000)"
 
 :: Execute node server
 call npm run start

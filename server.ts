@@ -266,54 +266,71 @@ async function startServer() {
     // Tu dong kich hoat trinh duyet khi chay cuc bo tren Windows
     if (process.platform === "win32") {
       try {
-        const chromePaths = [
-          path.join(process.env.ProgramFiles || "C:\\Program Files", "Google\\Chrome\\Application\\chrome.exe"),
-          path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Google\\Chrome\\Application\\chrome.exe"),
-          path.join(process.env.LocalAppData || "", "Google\\Chrome\\Application\\chrome.exe")
-        ];
-
-        const edgePaths = [
-          path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Microsoft\\Edge\\Application\\msedge.exe"),
-          path.join(process.env.ProgramFiles || "C:\\Program Files", "Microsoft\\Edge\\Application\\msedge.exe"),
-          path.join(process.env.LocalAppData || "", "Microsoft\\Edge\\Application\\msedge.exe")
-        ];
-
-        let launched = false;
         const targetUrl = `http://localhost:${PORT}`;
+        console.log(`[Trinh duyet] Dang tu dong mo trinh duyet cho: ${targetUrl}`);
 
-        // Thu mo bang Google Chrome truoc
-        for (const p of chromePaths) {
-          if (fs.existsSync(p)) {
-            console.log(`[Trinh duyet] Dang mo Google Chrome: ${p}`);
-            exec(`"${p}" "${targetUrl}"`, (err) => {
-              if (err) console.error("Chrome launch error:", err);
-            });
-            launched = true;
-            break;
+        // Buoc 1: Thu khoi chay dung lenh 'start' dang ky cua Windows cho Chrome hoac Edge (hoat dong tuyet voi tu Registry)
+        exec(`start chrome "${targetUrl}"`, (errChrome) => {
+          if (!errChrome) {
+            console.log(`[Trinh duyet] Da mo thanh cong bang Google Chrome (App Path).`);
+            return;
           }
-        }
 
-        // Neu khong co Chrome thi thu mo bang Microsoft Edge
-        if (!launched) {
-          for (const p of edgePaths) {
-            if (fs.existsSync(p)) {
-              console.log(`[Trinh duyet] Dang mo Microsoft Edge: ${p}`);
-              exec(`"${p}" "${targetUrl}"`, (err) => {
-                if (err) console.error("Edge launch error:", err);
-              });
-              launched = true;
-              break;
+          // Neu mo bang Chrome linh hoat gap loi thi thu Edge linh hoat
+          exec(`start msedge "${targetUrl}"`, (errEdge) => {
+            if (!errEdge) {
+              console.log(`[Trinh duyet] Da mo thanh cong bang Microsoft Edge (App Path).`);
+              return;
             }
-          }
-        }
 
-        // Du phong neu ca hai deu khong tim thay trong thu muc mac dinh thi dung start cua Windows
-        if (!launched) {
-          console.log(`[Trinh duyet] Dang mo bang trinh duyet mac dinh cua he thong...`);
-          exec(`start ${targetUrl}`, (err) => {
-            if (err) console.error("Default browser launch error:", err);
+            // Buoc 2: Neu 'start' truc tiep khong duoc (goi do moi truong), tiep tuc kiem tra bang duong dan cung
+            const chromePaths = [
+              path.join(process.env.ProgramFiles || "C:\\Program Files", "Google\\Chrome\\Application\\chrome.exe"),
+              path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Google\\Chrome\\Application\\chrome.exe"),
+              path.join(process.env.LocalAppData || "", "Google\\Chrome\\Application\\chrome.exe")
+            ];
+
+            const edgePaths = [
+              path.join(process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)", "Microsoft\\Edge\\Application\\msedge.exe"),
+              path.join(process.env.ProgramFiles || "C:\\Program Files", "Microsoft\\Edge\\Application\\msedge.exe"),
+              path.join(process.env.LocalAppData || "", "Microsoft\\Edge\\Application\\msedge.exe")
+            ];
+
+            let launched = false;
+
+            for (const p of chromePaths) {
+              if (fs.existsSync(p)) {
+                console.log(`[Trinh duyet] Dang mo Google Chrome qua duong dan: ${p}`);
+                exec(`"${p}" "${targetUrl}"`, (e) => {
+                  if (e) console.error("Chrome secondary launch error:", e);
+                });
+                launched = true;
+                break;
+              }
+            }
+
+            if (!launched) {
+              for (const p of edgePaths) {
+                if (fs.existsSync(p)) {
+                  console.log(`[Trinh duyet] Dang mo Microsoft Edge qua duong dan: ${p}`);
+                  exec(`"${p}" "${targetUrl}"`, (e) => {
+                    if (e) console.error("Edge secondary launch error:", e);
+                  });
+                  launched = true;
+                  break;
+                }
+              }
+            }
+
+            // Buoc 3: Du phong cuoi cung bang cach su dung trinh duyet mac dinh cua he thong Windows
+            if (!launched) {
+              console.log(`[Trinh duyet] Dang mo bang trinh duyet mac dinh cua he thong...`);
+              exec(`start ${targetUrl}`, (e) => {
+                if (e) console.error("Default browser final fallback error:", e);
+              });
+            }
           });
-        }
+        });
       } catch (browserError) {
         console.error("Tu dong mo trinh duyet that bai:", browserError);
       }
