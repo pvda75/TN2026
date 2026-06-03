@@ -1726,10 +1726,11 @@ export default function App() {
       : examSessions.map((s) => s.id);
 
   useEffect(() => {
+    if (userRole === "ADMIN" && activeClass === "ALL") return;
     if (allowedClasses.length > 0 && !allowedClasses.includes(activeClass)) {
       setActiveClass(allowedClasses[0]);
     }
-  }, [allowedClasses.join(","), activeClass]);
+  }, [allowedClasses.join(","), activeClass, userRole]);
 
   useEffect(() => {
     if (allowedExams.length > 0 && !allowedExams.includes(gradeExamName)) {
@@ -1826,7 +1827,7 @@ export default function App() {
         if (!isMatchExam) return false;
 
         // Lọc theo Lớp/Phòng (activeClass)
-        const isMatchClass = img.classId === activeClass;
+        const isMatchClass = activeClass === "ALL" || img.classId === activeClass;
         if (!isMatchClass) return false;
 
         // Lọc theo tài khoản đã được phân quyền Nhận dạng chấm bài
@@ -2295,34 +2296,21 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [scanHistory]);
 
-  // Reconcile images with scanHistory to revert any image status when its graded result is deleted
+  // Reconcile images with scanHistory to completely delete/release any image when its graded result is deleted
   useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
     setImages((prev) => {
       let isChanged = false;
-      const next = prev.map((img) => {
-        if (img.status === "done" && img.result?.id) {
+      const next = prev.filter((img) => {
+        if (img.result?.id) {
           const exists = scanHistory.some((item) => item.id === img.result.id);
           if (!exists) {
             isChanged = true;
-            if (img.rawAnswers) {
-              return {
-                ...img,
-                status: "scanned",
-                errorMsg: undefined,
-                result: undefined,
-              };
-            } else {
-              return {
-                ...img,
-                status: "pending",
-                errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
-                result: undefined,
-              };
-            }
+            addDeletedImageId(img.id);
+            return false;
           }
         }
-        return img;
+        return true;
       });
       return isChanged ? next : prev;
     });
@@ -5007,7 +4995,7 @@ export default function App() {
     const selectedImages = images.filter(
       (img) =>
         img.examName === gradeExamName &&
-        img.classId === activeClass &&
+        (activeClass === "ALL" || img.classId === activeClass) &&
         img.selected,
     );
 
@@ -5233,7 +5221,7 @@ export default function App() {
     const imagesToGrade = images.filter(
       (img) =>
         img.examName === gradeExamName &&
-        img.classId === activeClass &&
+        (activeClass === "ALL" || img.classId === activeClass) &&
         img.selected &&
         (img.status === "scanned" || img.status === "done"),
     );
@@ -5245,7 +5233,7 @@ export default function App() {
     const updatedImages = images.map((img) => {
       if (
         img.examName === gradeExamName &&
-        img.classId === activeClass &&
+        (activeClass === "ALL" || img.classId === activeClass) &&
         img.selected &&
         (img.status === "scanned" || img.status === "done")
       ) {
@@ -5317,7 +5305,7 @@ export default function App() {
         const existingRec = scanHistory.find(
           (p) =>
             p.studentId === studentAnswers.studentId &&
-            p.className === activeClass &&
+            p.className === (activeClass === "ALL" ? img.classId : activeClass) &&
             p.examName === gradeExamName &&
             (p.sessionId || "SESSION_DEFAULT") === activeSessionId,
         );
@@ -5336,7 +5324,7 @@ export default function App() {
         const newRecord = {
           id: Date.now().toString() + Math.random().toString(),
           studentId: studentAnswers.studentId || "Chưa rõ",
-          className: activeClass,
+          className: activeClass === "ALL" ? (img.classId || allowedClasses[0] || "") : activeClass,
           examName: gradeExamName,
           examCode: detectedCode,
           sessionId: activeSessionId,
@@ -5960,6 +5948,9 @@ export default function App() {
                         value={activeClass}
                         onChange={(e) => setActiveClass(e.target.value)}
                       >
+                        {userRole === "ADMIN" && (
+                          <option value="ALL">Tất cả</option>
+                        )}
                         {allowedClasses.map((c) => (
                           <option key={c} value={c}>
                             {c}
@@ -6560,7 +6551,7 @@ export default function App() {
                                 setImages((prev) =>
                                   prev.map((img) =>
                                     img.examName === gradeExamName &&
-                                    img.classId === activeClass
+                                    (activeClass === "ALL" || img.classId === activeClass)
                                       ? { ...img, selected: false }
                                       : img,
                                   ),
@@ -6594,7 +6585,7 @@ export default function App() {
                                   (img) =>
                                     !(
                                       img.examName === gradeExamName &&
-                                      img.classId === activeClass
+                                      (activeClass === "ALL" || img.classId === activeClass)
                                     ),
                                 );
                                 prev.forEach((img) => {
