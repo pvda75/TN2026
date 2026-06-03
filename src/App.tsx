@@ -2294,6 +2294,40 @@ export default function App() {
 
     return () => clearTimeout(timeout);
   }, [scanHistory]);
+
+  // Reconcile images with scanHistory to revert any image status when its graded result is deleted
+  useEffect(() => {
+    if (!initialHistoryFetchDone.current) return;
+    setImages((prev) => {
+      let isChanged = false;
+      const next = prev.map((img) => {
+        if (img.status === "done" && img.result?.id) {
+          const exists = scanHistory.some((item) => item.id === img.result.id);
+          if (!exists) {
+            isChanged = true;
+            if (img.rawAnswers) {
+              return {
+                ...img,
+                status: "scanned",
+                errorMsg: undefined,
+                result: undefined,
+              };
+            } else {
+              return {
+                ...img,
+                status: "pending",
+                errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
+                result: undefined,
+              };
+            }
+          }
+        }
+        return img;
+      });
+      return isChanged ? next : prev;
+    });
+  }, [scanHistory]);
+
   // FIREBASE SYNC: scanQueue
   useEffect(() => {
     initialQueueFetchDone.current = false;
@@ -2503,14 +2537,14 @@ export default function App() {
                 ? ({
                     ...p,
                     firebaseImageUrl: url,
-                    src: url,
-                    processedDataUrl: "",
-                    warpedDataUrl: "",
+                    src: url ? url : p.src,
+                    processedDataUrl: url ? "" : p.processedDataUrl,
+                    warpedDataUrl: url ? "" : p.warpedDataUrl,
                     result: p.result
                       ? {
                           ...p.result,
-                          imageSrc: "",
-                          originalImageSrc: "",
+                          imageSrc: url ? "" : (p.result.imageSrc || ""),
+                          originalImageSrc: url ? "" : (p.result.originalImageSrc || ""),
                         }
                       : p.result,
                   } as any)
@@ -2785,6 +2819,11 @@ export default function App() {
                 if (dbData.images && Array.isArray(dbData.images)) {
                   // Filter by role: Admin sees everything, standard user sees their own + assigned class/exam images
                   const filteredImages = dbData.images.filter((img: any) => {
+                    const targetQueueUserId = activeQueueUserId || currentUserId || "";
+                    const imgUserId = img.userId || "";
+                    if (imgUserId && targetQueueUserId && imgUserId !== targetQueueUserId) return false;
+                    if (!imgUserId && targetQueueUserId && targetQueueUserId !== currentUserId) return false;
+
                     if (userRole === "ADMIN") return true;
                     const usersList = dbData.users || appUsers;
                     const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
@@ -3207,6 +3246,11 @@ export default function App() {
           // Update images if changed
           if (dbData.images && Array.isArray(dbData.images)) {
             const filteredImages = dbData.images.filter((img: any) => {
+              const targetQueueUserId = activeQueueUserId || currentUserId || "";
+              const imgUserId = img.userId || "";
+              if (imgUserId && targetQueueUserId && imgUserId !== targetQueueUserId) return false;
+              if (!imgUserId && targetQueueUserId && targetQueueUserId !== currentUserId) return false;
+
               if (userRole === "ADMIN") return true;
               const usersList = dbData.users || appUsers;
               const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
