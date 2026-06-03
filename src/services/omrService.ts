@@ -24,19 +24,84 @@ export interface RegionConfig {
   markers?: {x: number, y: number}[]; // Các điểm neo nhỏ của vùng
 }
 
-// Hàm khởi tạo chờ OpenCV tải xong
+// Hàm khởi tạo chờ OpenCV tải xong (Hỗ trợ nhiều CDN, cơ chế nạp dự phòng và chống xoay vô hạn)
 export const waitForOpenCV = (): Promise<void> => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // 1. Kiểm tra nhanh xem OpenCV và cv.Mat đã sẵn sàng chưa
     if ((window as any).cv && (window as any).cv.Mat) {
       resolve();
-    } else {
-      const interval = setInterval(() => {
-        if ((window as any).cv && (window as any).cv.Mat) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 500);
+      return;
     }
+
+    const cdnUrls = [
+      "https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.8.0/opencv.js",
+      "https://cdn.jsdelivr.net/npm/@techstardna/opencv-js@4.8.0-release.1/opencv.js",
+      "https://unpkg.com/opencv.js@4.8.0/opencv.js",
+      "https://docs.opencv.org/4.8.0/opencv.js"
+    ];
+
+    let currentCdnIndex = 0;
+    let scriptElement: HTMLScriptElement | null = document.querySelector('script[src*="opencv.js"]') as HTMLScriptElement;
+
+    // Hàm thực hiện nạp script từ CDN
+    const loadScript = (url: string) => {
+      console.log(`[OpenCV Loader] Đang thử tải OpenCV từ CDN: ${url}`);
+      
+      // Nếu đã có thẻ script cũ bị lỗi/chưa xong, xoá nó để nạp lại thẻ mới sạch sẽ
+      if (scriptElement && scriptElement.parentNode) {
+        try {
+          scriptElement.parentNode.removeChild(scriptElement);
+        } catch (e) {
+          console.warn("[OpenCV Loader] Không thể gỡ thẻ script cũ:", e);
+        }
+      }
+
+      scriptElement = document.createElement("script");
+      scriptElement.src = url;
+      scriptElement.type = "text/javascript";
+      scriptElement.async = true;
+
+      scriptElement.onerror = () => {
+        console.warn(`[OpenCV Loader] Tải thất bại từ nguồn: ${url}`);
+        currentCdnIndex++;
+        if (currentCdnIndex < cdnUrls.length) {
+          loadScript(cdnUrls[currentCdnIndex]);
+        } else {
+          clearInterval(checkInterval);
+          reject(new Error("Lỗi kết nối: Các máy chủ CDN tải OpenCV đều không phản hồi. Vui lòng kiểm tra lại mạng Internet hoặc thử lại sau!"));
+        }
+      };
+
+      document.head.appendChild(scriptElement);
+    };
+
+    // Nếu trên trang chưa có thẻ script OpenCV nào, ta chủ động tạo tải từ nguồn tối ưu đầu tiên
+    if (!scriptElement) {
+      loadScript(cdnUrls[0]);
+    } else {
+      // Nếu có sẵn thẻ script nhưng chưa load được, nếu quá lâu vẫn rảnh, ta bắt đầu kích hoạt cơ chế fallback dự phòng
+      // Thẻ có sẵn mặc định lấy từ index.html (đã cấu hình cdnjs trước đó)
+      scriptElement.onerror = () => {
+        console.warn("[OpenCV Loader] Thẻ script mặc định bị lỗi, chuyển sang nạp dự phòng...");
+        currentCdnIndex = 1; // Nhảy ngay sang CDN dự phòng thứ 2
+        loadScript(cdnUrls[currentCdnIndex]);
+      };
+    }
+
+    // Thiết lập vòng lặp kiểm tra định kỳ xem đối tượng cv và cv.Mat đã khởi động thành công chưa (WASM setup complete)
+    let elapsed = 0;
+    const timeout = 30000; // Thời gian chờ tối đa 30 giây
+    const checkInterval = setInterval(() => {
+      elapsed += 500;
+      if ((window as any).cv && (window as any).cv.Mat) {
+        clearInterval(checkInterval);
+        console.log(`[OpenCV Loader] OpenCV đã khởi tạo thành công và sẵn sàng để xử lý ảnh OMR.`);
+        resolve();
+      } else if (elapsed >= timeout) {
+        clearInterval(checkInterval);
+        reject(new Error("Không thể tải thư viện xử lý ảnh OpenCV (Thời gian tải quá 30 giây). Vui lòng làm mới trang (F5) hoặc kiểm tra chất lượng đường truyền mạng của bạn!"));
+      }
+    }, 500);
   });
 };
 
