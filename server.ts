@@ -17,33 +17,71 @@ const downloadOpencvLocal = () => {
   }
   const opencvPath = path.join(publicDir, "opencv.js");
 
-  // Kiểm tra kích thước file (file chính xác của cdnjs thường > 8MB hoặc ~24MB)
-  if (fs.existsSync(opencvPath) && fs.statSync(opencvPath).size > 1000000) {
-    console.log("[OMR Setup] Thư viện opencv.js đã tồn tại đầy đủ trong thư mục public.");
-    return;
+  // Kiểm tra kích thước file để đảm bảo tính toàn vẹn (file opencv.js chuẩn cdnjs lớn hơn 8.5MB, thường là ~24MB)
+  if (fs.existsSync(opencvPath)) {
+    const fileSize = fs.statSync(opencvPath).size;
+    if (fileSize > 6000000) {
+      console.log(`[OMR Setup] Thư viện opencv.js đã tồn tại và đầy đủ dung lượng (${(fileSize / (1024 * 1024)).toFixed(2)} MB).`);
+      return;
+    } else {
+      console.log(`[OMR Setup] Phát hiện file opencv.js lỗi hoặc chưa tải xong (${(fileSize / 1024).toFixed(2)} KB). Tiến hành xóa để tải lại bản sạch...`);
+      try {
+        fs.unlinkSync(opencvPath);
+      } catch (e) {
+        console.warn("[OMR Setup] Không thể xóa file lỗi:", e);
+      }
+    }
   }
 
-  console.log("[OMR Setup] opencv.js chưa có hoặc lỗi kích thước. Tiến hành tải tự động về máy cục bộ...");
+  console.log("[OMR Setup] Bắt đầu tải bản đầy đủ của opencv.js từ CDN về thư mục public cục bộ...");
   const url = "https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.8.0/opencv.js";
 
-  const downloadFile = (downloadUrl: string, dest: string): Promise<void> => {
+  const downloadFile = (downloadUrl: string, dest: string, maxRedirects = 5): Promise<void> => {
     return new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest);
+      if (maxRedirects <= 0) {
+        reject(new Error("Quá số lần chuyển hướng cho phép (Too many redirects)"));
+        return;
+      }
+
       https.get(downloadUrl, (response) => {
-        if (response.statusCode === 301 || response.statusCode === 302) {
-          downloadFile(response.headers.location!, dest).then(resolve).catch(reject);
+        const { statusCode } = response;
+
+        // Xử lý chuyển hướng (301 hoặc 302)
+        if (statusCode === 301 || statusCode === 302) {
+          const redirectUrl = response.headers.location;
+          if (redirectUrl) {
+            downloadFile(redirectUrl, dest, maxRedirects - 1).then(resolve).catch(reject);
+          } else {
+            reject(new Error(`Bị chuyển hướng ${statusCode} nhưng không tìm thấy URL đích`));
+          }
           return;
         }
-        if (response.statusCode !== 200) {
-          reject(new Error(`Lỗi tải: ${response.statusCode}`));
+
+        if (statusCode !== 200) {
+          reject(new Error(`Máy chủ CDN phản hồi mã lỗi HTTP: ${statusCode}`));
           return;
         }
-        response.pipe(file);
-        file.on("finish", () => {
-          file.close(() => resolve());
+
+        // Chỉ tạo stream ghi khi đã nhận được phản hồi HTTP 200 thành công
+        const fileStream = fs.createWriteStream(dest);
+        response.pipe(fileStream);
+
+        fileStream.on("finish", () => {
+          fileStream.close(() => {
+            const finalSize = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
+            if (finalSize > 6000000) {
+              resolve();
+            } else {
+              reject(new Error(`Tải hoàn thành nhưng kích thước không đủ (${(finalSize / 1024).toFixed(2)} KB)`));
+            }
+          });
+        });
+
+        fileStream.on("error", (err) => {
+          fs.unlink(dest, () => {});
+          reject(err);
         });
       }).on("error", (err) => {
-        fs.unlink(dest, () => {});
         reject(err);
       });
     });
@@ -51,10 +89,20 @@ const downloadOpencvLocal = () => {
 
   downloadFile(url, opencvPath)
     .then(() => {
-      console.log("[OMR Setup] Hoàn thành: Đã lưu opencv.js thành công vào máy cục bộ để chấm offline!");
+      console.log("[OMR Setup] Hoàn thành: Đã lưu opencv.js sạch thành công vào máy cục bộ để chấm offline!");
     })
-    .catch((err) => {
-      console.warn("[OMR Setup] Không thể tải opencv.js cục bộ tự động trong nền (Sẽ tự động nạp CDN thay thế khi có mạng):", err.message);
+    .catch((err: any) => {
+      console.warn("[OMR Setup] Hướng dẫn offline: Không thể tải tự động dưới nền:", err.message);
+      console.warn("[OMR Setup] Ứng dụng sẽ tự động rơi về chế độ nạp trực tuyến thông qua CDN cdnjs.");
+      // Đảm bảo không để lại file rác dở dang
+      if (fs.existsSync(opencvPath)) {
+        try {
+          const size = fs.statSync(opencvPath).size;
+          if (size <= 6000000) {
+            fs.unlinkSync(opencvPath);
+          }
+        } catch (e) {}
+      }
     });
 };
 

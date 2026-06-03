@@ -24,10 +24,10 @@ export interface RegionConfig {
   markers?: {x: number, y: number}[]; // Các điểm neo nhỏ của vùng
 }
 
-// Hàm khởi tạo chờ OpenCV tải xong (Hỗ trợ nhiều CDN, cơ chế nạp dự phòng và chống xoay vô hạn)
+// Hàm khởi tạo chờ OpenCV tải xong (Hỗ trợ nhiều CDN, cơ chế nạp dự phòng thông minh dạng racer và chống xoay vô hạn)
 export const waitForOpenCV = (): Promise<void> => {
   return new Promise((resolve, reject) => {
-    // 1. Kiểm tra nhanh xem OpenCV và cv.Mat đã sẵn sàng chưa
+    // 1. Kiểm tra nhanh xem OpenCV đã sẵn sàng hoàn toàn từ trước chưa
     if ((window as any).cv && (window as any).cv.Mat) {
       resolve();
       return;
@@ -42,8 +42,10 @@ export const waitForOpenCV = (): Promise<void> => {
     ];
 
     let currentCdnIndex = 0;
+    let sourceTimer: any = null;
+    let scriptElement: HTMLScriptElement | null = null;
 
-    // Gỡ mọi script opencv cũ để nạp mới hoàn toàn, tránh sự kiện onerror cũ đã kích hoạt trước đó
+    // Gỡ mọi script opencv cũ để nạp mới hoàn toàn, tránh sự kiện cũ bị nghẽn
     const oldScripts = document.querySelectorAll('script[src*="opencv.js"]');
     oldScripts.forEach((s) => {
       try {
@@ -53,56 +55,75 @@ export const waitForOpenCV = (): Promise<void> => {
       }
     });
 
-    let scriptElement: HTMLScriptElement | null = null;
+    // Hàm chuyển sang nguồn tiếp theo khi nguồn hiện tại bị lỗi hoặc quá thời gian chờ (timeout) riêng lẻ
+    const loadNextSource = (reason: string) => {
+      if (sourceTimer) {
+        clearTimeout(sourceTimer);
+        sourceTimer = null;
+      }
 
-    // Hàm thực hiện nạp script từ CDN
+      currentCdnIndex++;
+      if (currentCdnIndex < cdnUrls.length) {
+        console.warn(`[OpenCV Loader] ${reason}. Đang chuyển cấu hình sang nguồn dự phòng tiếp theo (#${currentCdnIndex}): ${cdnUrls[currentCdnIndex]}`);
+        loadScript(cdnUrls[currentCdnIndex]);
+      } else {
+        // Hết tất cả các nguồn để thử
+        clearInterval(checkInterval);
+        reject(new Error("Lỗi kết nối offline/online: Không thể khởi chạy thư viện OpenCV.js từ bất kỳ nguồn cục bộ hay máy chủ CDN quốc tế nào. Xin vui lòng kiểm tra kết nối mạng Internet hoặc khởi tạo lại phần mềm máy chủ cục bộ!"));
+      }
+    };
+
+    // Hàm thực hiện nạp script định vị
     const loadScript = (url: string) => {
       console.log(`[OpenCV Loader] Đang tiến hành nạp OpenCV từ nguồn: ${url}`);
       
-      if (scriptElement && scriptElement.parentNode) {
-        try {
-          scriptElement.parentNode.removeChild(scriptElement);
-        } catch (e) {
-          console.warn("[OpenCV Loader] Không thể xóa thẻ tạm thời:", e);
-        }
-      }
-
       scriptElement = document.createElement("script");
       scriptElement.src = url;
       scriptElement.type = "text/javascript";
       scriptElement.async = true;
 
+      // Xử lý khi script có lỗi nạp vật lý (404, CORS, Net Error)
       scriptElement.onerror = () => {
-        console.warn(`[OpenCV Loader] Nạp thất bại từ nguồn: ${url}, chuyển sang nguồn tiếp theo...`);
-        currentCdnIndex++;
-        if (currentCdnIndex < cdnUrls.length) {
-          loadScript(cdnUrls[currentCdnIndex]);
-        } else {
-          clearInterval(checkInterval);
-          reject(new Error("Lỗi kết nối: Không thể nạp được thư viện OpenCV.js từ bất kỳ nguồn cục bộ hay máy chủ CDN quốc tế nào. Xin vui lòng kiểm tra lại kết nối mạng Internet hoặc khởi chạy lại máy chủ cục bộ!"));
-        }
+        loadNextSource(`Nạp thất bại (Network/CORS/404 Error)`);
       };
 
       document.head.appendChild(scriptElement);
+
+      // Thiết lập timeout riêng lẻ cho từng nguồn để tránh bị kẹt xoay vòng vô hạn
+      // - Với file cục bộ "/opencv.js", nếu có sẳn trên ổ cứng thì nạp cực nhanh (<1.5s). Ta cấu hình tối đa 4 giây.
+      // - Với các CDN Internet bên ngoài, ta cho phép tối đa 10 giây để tải xuống.
+      const currentSourceTimeout = url.startsWith("/") ? 4000 : 10000;
+      sourceTimer = setTimeout(() => {
+        // Nếu sau thời gian này mà cv hoặc cv.Mat vẫn chưa khởi tạo hoàn tất, chủ động bỏ qua để nạp nguồn tiếp theo
+        if (!((window as any).cv && (window as any).cv.Mat)) {
+          loadNextSource(`Quá thời gian nạp riêng biệt (${currentSourceTimeout / 1000} giây)`);
+        }
+      }, currentSourceTimeout);
     };
 
-    // Bắt đầu tải từ CDN / nguồn đầu tiên
+    // Bắt đầu tải từ nguồn cục bộ đầu tiên
     loadScript(cdnUrls[0]);
 
-    // Thiết lập vòng lặp kiểm tra định kỳ xem đối tượng cv và cv.Mat đã khởi động thành công chưa (WASM setup complete)
+    // Thiết lập vòng lặp quét định kỳ toàn cục xem đối tượng cv & cv.Mat đã nạp & biên dịch WebAssembly thành công chưa
     let elapsed = 0;
-    const timeout = 30000; // Thời gian chờ tối đa 30 giây
+    const globalTimeout = 60000; // Tăng thời gian chờ tối đa lên 60 giây để hỗ trợ các máy tính văn phòng cấu hình thấp biên dịch WASM hoàn tất
     const checkInterval = setInterval(() => {
-      elapsed += 500;
+      elapsed += 300;
       if ((window as any).cv && (window as any).cv.Mat) {
         clearInterval(checkInterval);
-        console.log(`[OpenCV Loader] OpenCV đã khởi tạo thành công và sẵn sàng để xử lý ảnh OMR.`);
+        if (sourceTimer) {
+          clearTimeout(sourceTimer);
+        }
+        console.log(`[OpenCV Loader] Chúc mừng! OpenCV đã khởi tạo thành công sau ${elapsed / 1000} giây và sẵn sàng xử lý ảnh.`);
         resolve();
-      } else if (elapsed >= timeout) {
+      } else if (elapsed >= globalTimeout) {
         clearInterval(checkInterval);
-        reject(new Error("Không thể khởi tạo thư viện OpenCV (Quá thời gian chờ 30 giây). Vui lòng tải lại trang (F5) hoặc đổi trình duyệt/máy tính để có tài nguyên phần cứng tốt hơn!"));
+        if (sourceTimer) {
+          clearTimeout(sourceTimer);
+        }
+        reject(new Error("Lỗi hệ thống: Không thể biên dịch và khởi tạo thư viện xử lý ảnh OpenCV (Quá giới hạn chờ toàn cục 60 giây). Xin vui lòng làm mới trang (F5) hoặc đổi sang trình duyệt Chrome để nhận trợ giúp tài nguyên phần cứng tốt hơn!"));
       }
-    }, 500);
+    }, 300);
   });
 };
 
