@@ -55,10 +55,12 @@ echo =====================================================================
 echo [+] Dang kiem tra va giai phong cong 3000 (neu bi chiem dung)...
 echo =====================================================================
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr LISTENING ^| findstr :3000') do (
-    echo [-] Phat hien cong 3000 cua may chu cu dang chay (PID: %%a).
-    echo [+] Dang tu dong giai phong cong 3000 de lam moi...
-    taskkill /f /pid %%a >nul 2>&1
-    ping -n 2 127.0.0.1 >nul
+    echo %%a| findstr /r "^[0-9][0-9]*$" >nul && (
+        echo [-] Phat hien cong 3000 cua may chu cu dang chay (PID: %%a).
+        echo [+] Dang tu dong giai phong cong 3000 de lam moi...
+        taskkill /f /pid %%a >nul 2>&1
+        ping -n 2 127.0.0.1 >nul
+    )
 )
 echo [+] Cong 3000 da san sang de khoi dong ung dung.
 echo.
@@ -77,11 +79,18 @@ start "" cmd /c "ping 127.0.0.1 -n 5 >nul & (start chrome http://localhost:3000 
 :: Configure Production environment variable so the compiled production server runs flawlessly
 set NODE_ENV=production
 
-:: Execute node server directly (This prevents premature CMD window closing on npm script termination)
-node dist\server.cjs
+:: Execute node server safely using call (This prevents premature CMD window closing on termination/crash)
+echo [+] Dang khoi dong may chu va duy tri hoat dong...
+call node dist\server.cjs
 if errorlevel 1 (
     echo.
-    echo [LOI CHAY MAY CHU] Quynh trinh khoi hanh hoac thuc hien may chu gap su co.
+    echo [LOI CHAY MAY CHU] Quy trinh khoi chay hoac thuc hien may chu gap su co.
+    echo * Vui long kiem tra xem phien ban Node.js da duoc cai dat dung cach chua.
+    echo * Dam bao ban run file .bat nay tinh tu thu muc chua ung dung.
+    echo.
+) else (
+    echo.
+    echo [+] May chu da dung hoat dong.
     echo.
 )
 pause
