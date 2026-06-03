@@ -2819,12 +2819,11 @@ export default function App() {
                 if (dbData.images && Array.isArray(dbData.images)) {
                   // Filter by role: Admin sees everything, standard user sees their own + assigned class/exam images
                   const filteredImages = dbData.images.filter((img: any) => {
+                    if (userRole === "ADMIN") return true;
                     const targetQueueUserId = activeQueueUserId || currentUserId || "";
                     const imgUserId = img.userId || "";
                     if (imgUserId && targetQueueUserId && imgUserId !== targetQueueUserId) return false;
                     if (!imgUserId && targetQueueUserId && targetQueueUserId !== currentUserId) return false;
-
-                    if (userRole === "ADMIN") return true;
                     const usersList = dbData.users || appUsers;
                     const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
                     if (!currentUser) return !img.userId || img.userId === currentUserId;
@@ -3246,12 +3245,11 @@ export default function App() {
           // Update images if changed
           if (dbData.images && Array.isArray(dbData.images)) {
             const filteredImages = dbData.images.filter((img: any) => {
+              if (userRole === "ADMIN") return true;
               const targetQueueUserId = activeQueueUserId || currentUserId || "";
               const imgUserId = img.userId || "";
               if (imgUserId && targetQueueUserId && imgUserId !== targetQueueUserId) return false;
               if (!imgUserId && targetQueueUserId && targetQueueUserId !== currentUserId) return false;
-
-              if (userRole === "ADMIN") return true;
               const usersList = dbData.users || appUsers;
               const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
               if (!currentUser) return !img.userId || img.userId === currentUserId;
@@ -4073,7 +4071,23 @@ export default function App() {
       }),
     );
 
-    await localforage.setItem(`autograde_history_${currentUserId}`, updatedHistory);
+    try {
+      await localforage.setItem(`autograde_history_${currentUserId}`, updatedHistory);
+    } catch (err) {
+      console.error("Failed to save localforage history:", err);
+    }
+
+    if (isLocalServerMode) {
+      try {
+        await fetch(`${localServerUrl}/api/local-db`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deletedHistoryIds: selectedHistoryIds, userId: currentUserId }),
+        });
+      } catch (err) {
+        console.error("Failed to sync history deletion to local server:", err);
+      }
+    }
   };
 
   const recalculateSelectedHistory = async (e: React.MouseEvent) => {

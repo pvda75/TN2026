@@ -183,15 +183,23 @@ async function startServer() {
   app.post("/api/local-db", (req, res) => {
     try {
       const dbData = readLocalDB();
-      const { users, structures, history, images, omrConfig, userId } = req.body;
-
-      if (users !== undefined) dbData.users = users;
-      if (structures !== undefined) dbData.structures = structures;
-      if (omrConfig !== undefined) dbData.omrConfig = omrConfig;
+      const { users, structures, history, images, omrConfig, userId, deletedHistoryIds, deletedImageIds } = req.body;
 
       // Ensure arrays are initialized
       if (!Array.isArray(dbData.images)) dbData.images = [];
       if (!Array.isArray(dbData.history)) dbData.history = [];
+
+      // Perform global deletions if requested
+      if (Array.isArray(deletedHistoryIds) && deletedHistoryIds.length > 0) {
+        dbData.history = dbData.history.filter((h: any) => !deletedHistoryIds.includes(h.id));
+      }
+      if (Array.isArray(deletedImageIds) && deletedImageIds.length > 0) {
+        dbData.images = dbData.images.filter((img: any) => !deletedImageIds.includes(img.id));
+      }
+
+      if (users !== undefined) dbData.users = users;
+      if (structures !== undefined) dbData.structures = structures;
+      if (omrConfig !== undefined) dbData.omrConfig = omrConfig;
 
       // Merge images safely if userId is provided
       if (images !== undefined) {
