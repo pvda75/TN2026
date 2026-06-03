@@ -63,9 +63,27 @@ echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: Auto open main page in default browser
+:: Auto open main page in Google Chrome (Fallback to default browser if not found)
 timeout /t 1 /nobreak >nul
-start http://localhost:3000
+echo [+] Dang tu dong mo trinh duyet Google Chrome...
+set "CHROME_PATH="
+
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" (
+    set "CHROME_PATH=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
+) else if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" (
+    set "CHROME_PATH=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
+) else if exist "%LocalAppData%\Google\Chrome\Application\chrome.exe" (
+    set "CHROME_PATH=%LocalAppData%\Google\Chrome\Application\chrome.exe"
+)
+
+if defined CHROME_PATH (
+    echo [+] Da phat hien Google Chrome tai: %CHROME_PATH%
+    start "" "%CHROME_PATH%" "http://localhost:3000"
+) else (
+    echo [-] Khong tim thay Google Chrome tren cac thu muc mac dinh.
+    echo [+] Thuc hien mo trang chu bang trinh duyet mac dinh tro tren may...
+    start http://localhost:3000
+)
 
 :: Execute node server
 call npm run start
