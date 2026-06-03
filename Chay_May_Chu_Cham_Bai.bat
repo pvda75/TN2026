@@ -67,9 +67,9 @@ echo  [*] Dia chi backup IP cuc bo:          http://127.0.0.1:3000
 echo =====================================================================
 echo.
 
-:: Du phong kich hoat trinh duyet tu dong phia cmd song song voi server-side trigger
-echo [+] Dang tu dong khoi chay trinh duyet (Google Chrome / Microsoft Edge)...
-start /b cmd /c "ping 127.0.0.1 -n 4 >nul && (start chrome http://localhost:3000 2>nul || start msedge http://localhost:3000 2>nul || start http://localhost:3000)"
+:: Tu dong khoi chay trinh duyet trong cua so rieng sau khi server san sang (khoang 3-4 giay)
+echo [+] Dang tu dong khoi chay trinh duyet de tai ung dung...
+start "" cmd /c "ping 127.0.0.1 -n 5 >nul & (start chrome http://localhost:3000 2>nul || start msedge http://localhost:3000 2>nul || start http://localhost:3000)"
 
 :: Execute node server
 call npm run start
