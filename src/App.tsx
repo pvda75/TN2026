@@ -43,6 +43,7 @@ import {
   BarChart3,
   Folder,
   AlertTriangle,
+  CloudUpload,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -5199,6 +5200,66 @@ export default function App() {
     setGlobalProcessing(false);
   };
 
+  const [isSyncingAllHistory, setIsSyncingAllHistory] = useState(false);
+
+  const syncAllHistoryToCloud = async () => {
+    if (userRole !== "ADMIN") {
+      setDialogState({
+        type: "alert",
+        message: "Chỉ tài khoản Admin mới có quyền thực hiện chức năng này!",
+      });
+      return;
+    }
+
+    if (scanHistory.length === 0) {
+      setDialogState({
+        type: "alert",
+        message: "Không có kết quả chấm thi nào để đồng bộ!",
+      });
+      return;
+    }
+
+    setIsSyncingAllHistory(true);
+    let successCount = 0;
+
+    try {
+      const batchSize = 450;
+      for (let i = 0; i < scanHistory.length; i += batchSize) {
+        const chunk = scanHistory.slice(i, i + batchSize);
+        const batch = writeBatch(db);
+
+        for (const item of chunk) {
+          const docRef = doc(db, "scanHistory", item.id);
+          const { imageSrc, originalImageSrc, isUploading, ...metadataOnly } = item as any;
+          
+          const cleanMetadata = stripDataUrls(JSON.parse(JSON.stringify(metadataOnly)));
+
+          if (item.timestamp) {
+            cleanMetadata.timestamp = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp);
+          }
+
+          batch.set(docRef, cleanMetadata, { merge: true });
+        }
+
+        await batch.commit();
+        successCount += chunk.length;
+      }
+
+      setDialogState({
+        type: "alert",
+        message: `Đồng bộ Cloud thành công! Đã tải lên ${successCount} kết quả chấm thi (không kèm ảnh thí sinh).`,
+      });
+    } catch (err: any) {
+      console.error("Lỗi đồng bộ Cloud:", err);
+      setDialogState({
+        type: "alert",
+        message: `Lỗi đồng bộ Cloud: ${err.message || err}`,
+      });
+    } finally {
+      setIsSyncingAllHistory(false);
+    }
+  };
+
   const exportAllPdfs = () => {
     if (activeClassHistory.length > 0) {
       const clsName =
@@ -7364,15 +7425,29 @@ export default function App() {
                                 ↓ BÀI LÀM CHI TIẾT
                               </button>
                               {userRole === "ADMIN" && (
-                                <button
-                                  className="bg-orange-600 hover:bg-orange-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-xs flex items-center justify-center whitespace-nowrap"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    exportEditLogsPdf();
-                                  }}
-                                >
-                                  ↓ NHẬT KÝ CHỈNH SỬA
-                                </button>
+                                <>
+                                  <button
+                                    id="sync-results-to-cloud-btn"
+                                    className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:from-indigo-800 active:to-indigo-900 disabled:opacity-55 text-white font-semibold py-2 px-4 rounded-lg shadow-sm transition-all text-xs flex items-center justify-center gap-1.5 whitespace-nowrap"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      syncAllHistoryToCloud();
+                                    }}
+                                    disabled={isSyncingAllHistory}
+                                  >
+                                    <CloudUpload className={`w-3.5 h-3.5 ${isSyncingAllHistory ? "animate-bounce" : ""}`} />
+                                    {isSyncingAllHistory ? "ĐANG ĐỒNG BỘ..." : "ĐỒNG BỘ CLOUD"}
+                                  </button>
+                                  <button
+                                    className="bg-orange-600 hover:bg-orange-700 text-white font-medium py-2 px-4 rounded-lg shadow-sm transition-colors text-xs flex items-center justify-center whitespace-nowrap"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      exportEditLogsPdf();
+                                    }}
+                                  >
+                                    ↓ NHẬT KÝ CHỈNH SỬA
+                                  </button>
+                                </>
                               )}
                             </div>
                           </div>
