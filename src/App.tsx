@@ -2301,36 +2301,33 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [scanHistory]);
 
-  // Reconcile images with scanHistory to revert status of any image when its graded result is deleted
+  // Reconcile images with scanHistory to delete corresponding images when their graded result is deleted
   useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
     setImages((prev) => {
-      let isChanged = false;
-      const next = prev.map((img) => {
+      const deletedIdsList: string[] = [];
+      const next = prev.filter((img) => {
         if (img.result?.id) {
           const exists = scanHistory.some((item) => item.id === img.result.id);
           if (!exists) {
-            isChanged = true;
-            if (img.rawAnswers) {
-              return {
-                ...img,
-                status: "scanned",
-                errorMsg: undefined,
-                result: undefined,
-              };
-            } else {
-              return {
-                ...img,
-                status: "pending",
-                errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
-                result: undefined,
-              };
-            }
+            deletedIdsList.push(img.id);
+            return false;
           }
         }
-        return img;
+        return true;
       });
-      return isChanged ? next : prev;
+      if (deletedIdsList.length > 0) {
+        deletedIdsList.forEach((id) => {
+          addDeletedImageId(id);
+          unpushedImageIds.current.delete(id);
+        });
+        localStorage.setItem(
+          "unpushed_image_ids",
+          JSON.stringify(Array.from(unpushedImageIds.current)),
+        );
+        return next;
+      }
+      return prev;
     });
   }, [scanHistory]);
 
@@ -4104,29 +4101,25 @@ export default function App() {
       setSelectedResult(null);
     }
 
-    // Revert status of corresponding images instead of deleting them when their graded result is deleted
-    setImages((prev) =>
-      prev.map((img) => {
-        if (img.result && selectedHistoryIds.includes(img.result.id)) {
-          if (img.rawAnswers) {
-            return {
-              ...img,
-              status: "scanned",
-              errorMsg: undefined,
-              result: undefined,
-            };
-          } else {
-            return {
-              ...img,
-              status: "pending",
-              errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
-              result: undefined,
-            };
-          }
-        }
-        return img;
-      }),
+    // Delete corresponding scanned images completely instead of reverting them when their graded result is deleted
+    const imagesToDelete = images.filter(
+      (img) => img.result && selectedHistoryIds.includes(img.result.id),
     );
+    const deletedImgIdsList = imagesToDelete.map((img) => img.id);
+
+    if (deletedImgIdsList.length > 0) {
+      deletedImgIdsList.forEach((id) => {
+        addDeletedImageId(id);
+        unpushedImageIds.current.delete(id);
+      });
+      localStorage.setItem(
+        "unpushed_image_ids",
+        JSON.stringify(Array.from(unpushedImageIds.current)),
+      );
+      setImages((prev) =>
+        prev.filter((img) => !deletedImgIdsList.includes(img.id)),
+      );
+    }
 
     try {
       await localforage.setItem(`autograde_history_${currentUserId}`, updatedHistory);
