@@ -19,6 +19,7 @@ import {
   disableNetwork,
   query,
   where,
+  arrayUnion,
 } from "firebase/firestore";
 import { db, uploadBase64ToStorage, deleteImageFromStorage } from "./firebase";
 import * as XLSX from "xlsx";
@@ -1976,6 +1977,8 @@ export default function App() {
             "examStructures",
             "globalOMRConfig",
             "globalOMRTemplateImage",
+            "deletedHistoryIds",
+            "deletedImageIds",
           ];
           const coreData: any = {};
           syncKeys.sort().forEach((k) => {
@@ -2016,6 +2019,30 @@ export default function App() {
               );
               return coreData.globalOMRTemplateImage;
             });
+          }
+          if (coreData.deletedHistoryIds && Array.isArray(coreData.deletedHistoryIds)) {
+            let changed = false;
+            coreData.deletedHistoryIds.forEach((id: string) => {
+              if (!deletedHistoryIds.current.has(id)) {
+                deletedHistoryIds.current.add(id);
+                changed = true;
+              }
+            });
+            if (changed) {
+              localStorage.setItem("deleted_history_ids", JSON.stringify(Array.from(deletedHistoryIds.current)));
+            }
+          }
+          if (coreData.deletedImageIds && Array.isArray(coreData.deletedImageIds)) {
+            let changed = false;
+            coreData.deletedImageIds.forEach((id: string) => {
+              if (!deletedImageIds.current.has(id)) {
+                deletedImageIds.current.add(id);
+                changed = true;
+              }
+            });
+            if (changed) {
+              localStorage.setItem("deleted_image_ids", JSON.stringify(Array.from(deletedImageIds.current)));
+            }
           }
         }
         initialFetchDone.current = true;
@@ -2301,33 +2328,36 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [scanHistory]);
 
-  // Reconcile images with scanHistory to delete corresponding images when their graded result is deleted
+  // Reconcile images with scanHistory to revert status of corresponding images instead of deleting them when their graded result is deleted
   useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
     setImages((prev) => {
-      const deletedIdsList: string[] = [];
-      const next = prev.filter((img) => {
+      let isChanged = false;
+      const next = prev.map((img) => {
         if (img.result?.id) {
           const exists = scanHistory.some((item) => item.id === img.result.id);
           if (!exists) {
-            deletedIdsList.push(img.id);
-            return false;
+            isChanged = true;
+            if (img.rawAnswers) {
+              return {
+                ...img,
+                status: "scanned",
+                errorMsg: undefined,
+                result: undefined,
+              };
+            } else {
+              return {
+                ...img,
+                status: "pending",
+                errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
+                result: undefined,
+              };
+            }
           }
         }
-        return true;
+        return img;
       });
-      if (deletedIdsList.length > 0) {
-        deletedIdsList.forEach((id) => {
-          addDeletedImageId(id);
-          unpushedImageIds.current.delete(id);
-        });
-        localStorage.setItem(
-          "unpushed_image_ids",
-          JSON.stringify(Array.from(unpushedImageIds.current)),
-        );
-        return next;
-      }
-      return prev;
+      return isChanged ? next : prev;
     });
   }, [scanHistory]);
 
@@ -2748,6 +2778,36 @@ export default function App() {
             if (res.ok) {
               const dbData = await res.json();
               if (isMounted) {
+                if (dbData.deletedHistoryIds && Array.isArray(dbData.deletedHistoryIds)) {
+                  let changed = false;
+                  dbData.deletedHistoryIds.forEach((id: string) => {
+                    if (!deletedHistoryIds.current.has(id)) {
+                      deletedHistoryIds.current.add(id);
+                      changed = true;
+                    }
+                  });
+                  if (changed) {
+                    localStorage.setItem(
+                      "deleted_history_ids",
+                      JSON.stringify(Array.from(deletedHistoryIds.current)),
+                    );
+                  }
+                }
+                if (dbData.deletedImageIds && Array.isArray(dbData.deletedImageIds)) {
+                  let changed = false;
+                  dbData.deletedImageIds.forEach((id: string) => {
+                    if (!deletedImageIds.current.has(id)) {
+                      deletedImageIds.current.add(id);
+                      changed = true;
+                    }
+                  });
+                  if (changed) {
+                    localStorage.setItem(
+                      "deleted_image_ids",
+                      JSON.stringify(Array.from(deletedImageIds.current)),
+                    );
+                  }
+                }
                 if (dbData.users && Array.isArray(dbData.users)) {
                   setAppUsers(dbData.users);
                 }
@@ -3181,6 +3241,36 @@ export default function App() {
         const res = await fetch(`${localServerUrl}/api/local-db`);
         if (res.ok) {
           const dbData = await res.json();
+          if (dbData.deletedHistoryIds && Array.isArray(dbData.deletedHistoryIds)) {
+            let changed = false;
+            dbData.deletedHistoryIds.forEach((id: string) => {
+              if (!deletedHistoryIds.current.has(id)) {
+                deletedHistoryIds.current.add(id);
+                changed = true;
+              }
+            });
+            if (changed) {
+              localStorage.setItem(
+                "deleted_history_ids",
+                JSON.stringify(Array.from(deletedHistoryIds.current)),
+              );
+            }
+          }
+          if (dbData.deletedImageIds && Array.isArray(dbData.deletedImageIds)) {
+            let changed = false;
+            dbData.deletedImageIds.forEach((id: string) => {
+              if (!deletedImageIds.current.has(id)) {
+                deletedImageIds.current.add(id);
+                changed = true;
+              }
+            });
+            if (changed) {
+              localStorage.setItem(
+                "deleted_image_ids",
+                JSON.stringify(Array.from(deletedImageIds.current)),
+              );
+            }
+          }
           // Update users if changed
           if (dbData.users && Array.isArray(dbData.users)) {
             setAppUsers((prev) => JSON.stringify(prev) === JSON.stringify(dbData.users) ? prev : dbData.users);
@@ -3426,6 +3516,12 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deletedImageIds: [id], userId: currentUserId }),
       }).catch((err) => console.error("Failed to sync image deletion to local server:", err));
+    } else if (!firestoreQuotaExceeded) {
+      setDoc(
+        doc(db, "globals", "appData"),
+        { deletedImageIds: arrayUnion(id) },
+        { merge: true }
+      ).catch((err) => console.error("Failed to sync image deletion to firestore:", err));
     }
   };
 
@@ -3441,6 +3537,12 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deletedHistoryIds: [id], userId: currentUserId }),
       }).catch((err) => console.error("Failed to sync history deletion to local server:", err));
+    } else if (!firestoreQuotaExceeded) {
+      setDoc(
+        doc(db, "globals", "appData"),
+        { deletedHistoryIds: arrayUnion(id) },
+        { merge: true }
+      ).catch((err) => console.error("Failed to sync history deletion to firestore:", err));
     }
   };
 
@@ -4101,25 +4203,29 @@ export default function App() {
       setSelectedResult(null);
     }
 
-    // Delete corresponding scanned images completely instead of reverting them when their graded result is deleted
-    const imagesToDelete = images.filter(
-      (img) => img.result && selectedHistoryIds.includes(img.result.id),
+    // Revert status of corresponding images instead of deleting them when their graded result is deleted
+    setImages((prev) =>
+      prev.map((img) => {
+        if (img.result && selectedHistoryIds.includes(img.result.id)) {
+          if (img.rawAnswers) {
+            return {
+              ...img,
+              status: "scanned",
+              errorMsg: undefined,
+              result: undefined,
+            };
+          } else {
+            return {
+              ...img,
+              status: "pending",
+              errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
+              result: undefined,
+            };
+          }
+        }
+        return img;
+      }),
     );
-    const deletedImgIdsList = imagesToDelete.map((img) => img.id);
-
-    if (deletedImgIdsList.length > 0) {
-      deletedImgIdsList.forEach((id) => {
-        addDeletedImageId(id);
-        unpushedImageIds.current.delete(id);
-      });
-      localStorage.setItem(
-        "unpushed_image_ids",
-        JSON.stringify(Array.from(unpushedImageIds.current)),
-      );
-      setImages((prev) =>
-        prev.filter((img) => !deletedImgIdsList.includes(img.id)),
-      );
-    }
 
     try {
       await localforage.setItem(`autograde_history_${currentUserId}`, updatedHistory);
