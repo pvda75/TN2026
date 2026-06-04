@@ -4203,48 +4203,72 @@ export default function App() {
       setSelectedResult(null);
     }
 
-    // Revert status of corresponding images instead of deleting them when their graded result is deleted
-    setImages((prev) =>
-      prev.map((img) => {
-        if (img.result && selectedHistoryIds.includes(img.result.id)) {
-          if (img.rawAnswers) {
-            return {
-              ...img,
-              status: "scanned",
-              errorMsg: undefined,
-              result: undefined,
-            };
-          } else {
-            return {
-              ...img,
-              status: "pending",
-              errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
-              result: undefined,
-            };
-          }
+    // Immediately process updated images list to clear results and revert status
+    const updatedImages = images.map((img) => {
+      if (img.result && selectedHistoryIds.includes(img.result.id)) {
+        if (img.rawAnswers) {
+          return {
+            ...img,
+            status: "scanned",
+            errorMsg: undefined,
+            result: undefined,
+          };
+        } else {
+          return {
+            ...img,
+            status: "pending",
+            errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
+            result: undefined,
+          };
         }
-        return img;
-      }),
-    );
+      }
+      return img;
+    });
 
+    setImages(updatedImages);
+
+    // Save updated history and images immediately to localforage
     try {
       await localforage.setItem(`autograde_history_${currentUserId}`, updatedHistory);
+      await localforage.setItem(`autograde_images_${currentUserId}`, updatedImages);
     } catch (err) {
-      console.error("Failed to save localforage history:", err);
+      console.error("Failed to save localforage history/images immediately:", err);
     }
 
+    // IMMEDIATELY update Firestore scanQueue
+    const targetQueueUserId = activeQueueUserId || currentUserId;
+    if (targetQueueUserId && !firestoreQuotaExceeded) {
+      const cleanImages = updatedImages.map((img: any) => {
+        const { isLocalSelected, isUploadingToFirebase, ...rest } = img;
+        return rest;
+      });
+      setDoc(
+        doc(db, "globals", `scanQueue_${targetQueueUserId}`),
+        { images: stripDataUrls(cleanImages), updatedAt: Date.now() },
+        { merge: true }
+      ).catch((err) => {
+        console.error("Failed to immediate-sync scanQueue to Firestore:", err);
+      });
+    }
+
+    // IMMEDIATELY update local-db
     if (isLocalServerMode) {
       try {
+        const imagesWithOwner = updatedImages.map((img: any) => ({
+          ...img,
+          userId: img.userId || currentUserId
+        }));
         await fetch(`${localServerUrl}/api/local-db`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             deletedHistoryIds: selectedHistoryIds,
+            images: imagesWithOwner,
             userId: currentUserId
           }),
         });
       } catch (err) {
-        console.error("Failed to sync history deletion to local server:", err);
+        console.error("Failed to sync history deletion and updated images to local server:", err);
       }
     }
   };

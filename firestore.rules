@@ -6,14 +6,8 @@ service cloud.firestore {
     }
 
     match /globals/{docId} {
-      // For shared account data and configs, we allow reads.
-      allow read: if true;
-      allow create, update: if 
-        (docId.matches('^scanQueue.*')) ||
-        (request.resource.data.keys().hasAll(['appUsers', 'classes', 'examConfigs']) &&
-         request.resource.data.appUsers is list &&
-         request.resource.data.classes is list &&
-         request.resource.data.examConfigs is list);
+      // Allow read and write for everyone to ensure global configurations, queues, and deleted trackers are synchronized.
+      allow read, write: if true;
     }
     
     match /scanHistory/{historyId} {
