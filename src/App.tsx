@@ -4037,6 +4037,13 @@ export default function App() {
       setSelectedResult(null);
     }
 
+    const imageIdsToDelete: string[] = [];
+    images.forEach((img) => {
+      if (img.result && selectedHistoryIds.includes(img.result.id)) {
+        imageIdsToDelete.push(img.id);
+      }
+    });
+
     // Delete corresponding images completely when their graded result is deleted
     setImages((prev) =>
       prev.filter((img) => {
@@ -4059,7 +4066,11 @@ export default function App() {
         await fetch(`${localServerUrl}/api/local-db`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deletedHistoryIds: selectedHistoryIds, userId: currentUserId }),
+          body: JSON.stringify({
+            deletedHistoryIds: selectedHistoryIds,
+            deletedImageIds: imageIdsToDelete,
+            userId: currentUserId
+          }),
         });
       } catch (err) {
         console.error("Failed to sync history deletion to local server:", err);
@@ -5354,22 +5365,34 @@ export default function App() {
           }
         }
 
-        if (toRemove.size > 0 && !firestoreQuotaExceeded) {
-          try {
-            const batch = writeBatch(db);
-            toRemove.forEach((id) => {
-              batch.delete(doc(db, "scanHistory", id as string));
-            });
-            if (!firestoreQuotaExceeded) {
+        if (toRemove.size > 0) {
+          if (!firestoreQuotaExceeded) {
+            try {
+              const batch = writeBatch(db);
+              toRemove.forEach((id) => {
+                batch.delete(doc(db, "scanHistory", id as string));
+              });
               batch.commit().catch((e) => {
                 console.error("Firebase deletion match commit error", e);
                 if (isQuotaError(e)) {
                   setQuotaExceeded();
                 }
               });
+            } catch (e) {
+              console.error(e);
             }
-          } catch (e) {
-            console.error(e);
+          }
+          if (isLocalServerMode) {
+            fetch(`${localServerUrl}/api/local-db`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                deletedHistoryIds: Array.from(toRemove),
+                userId: currentUserId,
+              }),
+            }).catch((err) =>
+              console.error("Failed to sync OMR overwrite deletion to local server:", err),
+            );
           }
         }
 

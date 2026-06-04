@@ -188,44 +188,58 @@ async function startServer() {
       // Ensure arrays are initialized
       if (!Array.isArray(dbData.images)) dbData.images = [];
       if (!Array.isArray(dbData.history)) dbData.history = [];
+      if (!Array.isArray(dbData.deletedHistoryIds)) dbData.deletedHistoryIds = [];
+      if (!Array.isArray(dbData.deletedImageIds)) dbData.deletedImageIds = [];
 
       // Perform global deletions if requested
       if (Array.isArray(deletedHistoryIds) && deletedHistoryIds.length > 0) {
         dbData.history = dbData.history.filter((h: any) => !deletedHistoryIds.includes(h.id));
+        deletedHistoryIds.forEach((id: string) => {
+          if (!dbData.deletedHistoryIds.includes(id)) {
+            dbData.deletedHistoryIds.push(id);
+          }
+        });
       }
       if (Array.isArray(deletedImageIds) && deletedImageIds.length > 0) {
         dbData.images = dbData.images.filter((img: any) => !deletedImageIds.includes(img.id));
+        deletedImageIds.forEach((id: string) => {
+          if (!dbData.deletedImageIds.includes(id)) {
+            dbData.deletedImageIds.push(id);
+          }
+        });
       }
 
       if (users !== undefined) dbData.users = users;
       if (structures !== undefined) dbData.structures = structures;
       if (omrConfig !== undefined) dbData.omrConfig = omrConfig;
 
-      // Merge images safely if userId is provided
+      // Merge images safely if userId is provided, filtering out any deleted images
       if (images !== undefined) {
+        const activeImages = images.filter((img: any) => !dbData.deletedImageIds.includes(img.id));
         if (userId) {
-          const cleanImages = images.map((img: any) => ({ ...img, userId: img.userId || userId }));
+          const cleanImages = activeImages.map((img: any) => ({ ...img, userId: img.userId || userId }));
           const sentImageIds = new Set(cleanImages.map((img: any) => img.id));
           dbData.images = [
-            ...dbData.images.filter((img: any) => !sentImageIds.has(img.id)),
+            ...dbData.images.filter((img: any) => !sentImageIds.has(img.id) && !dbData.deletedImageIds.includes(img.id)),
             ...cleanImages
           ];
         } else {
-          dbData.images = images;
+          dbData.images = activeImages;
         }
       }
 
-      // Merge history safely if userId is provided
+      // Merge history safely if userId is provided, filtering out any deleted history items
       if (history !== undefined) {
+        const activeHistory = history.filter((item: any) => !dbData.deletedHistoryIds.includes(item.id));
         if (userId) {
-          const cleanHistory = history.map((item: any) => ({ ...item, userId: item.userId || userId }));
+          const cleanHistory = activeHistory.map((item: any) => ({ ...item, userId: item.userId || userId }));
           const sentHistoryIds = new Set(cleanHistory.map((item: any) => item.id));
           dbData.history = [
-            ...dbData.history.filter((item: any) => !sentHistoryIds.has(item.id)),
+            ...dbData.history.filter((item: any) => !sentHistoryIds.has(item.id) && !dbData.deletedHistoryIds.includes(item.id)),
             ...cleanHistory
           ];
         } else {
-          dbData.history = history;
+          dbData.history = activeHistory;
         }
       }
 
