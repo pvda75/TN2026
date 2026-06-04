@@ -1226,9 +1226,12 @@ export default function App() {
     // 1. Snapshot state for background sync
     const uid = currentUserId;
     const backupUserRole = userRole;
-    const backupImages = [...images];
-    const backupScanHistory = [...scanHistory];
     const backupDeletedImageIds = new Set(deletedImageIds.current);
+    const backupImages = [...images].filter((img) => !backupDeletedImageIds.has(img.id));
+    const backupDeletedHistoryIds = new Set(deletedHistoryIds.current);
+    const backupScanHistory = [...scanHistory].filter(
+      (item) => !backupDeletedHistoryIds.has(item.id) && unpushedHistoryIds.current.has(item.id)
+    );
     const snapAppUsers = appUsers;
     const snapClasses = classes;
     const snapExamConfigs = examConfigs;
@@ -2055,6 +2058,7 @@ export default function App() {
 
           snapshot.docs.forEach((docSnap) => {
             const data = docSnap.data() as any;
+            if (deletedHistoryIds.current.has(data.id)) return;
             if (data.timestamp?.toDate) {
               data.timestamp = data.timestamp.toDate();
             } else if (data.timestamp) {
@@ -2794,6 +2798,7 @@ export default function App() {
                   });
                   // Filter by role: Admin sees everything, standard user sees their own + items uploaded by admins
                   const filteredHistory = parsedHistory.filter((item: any) => {
+                    if (deletedHistoryIds.current.has(item.id)) return false;
                     if (userRole === "ADMIN") return true;
                     const usersList = dbData.users || appUsers;
                     const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
@@ -2900,7 +2905,7 @@ export default function App() {
               resultDetails: details,
               timestamp: cleaned.timestamp ? new Date(cleaned.timestamp) : new Date(),
             };
-          });
+          }).filter((item: any) => !deletedHistoryIds.current.has(item.id));
           setScanHistory((prev) => {
             if (
               prev.length > 0 &&
@@ -3228,6 +3233,7 @@ export default function App() {
               };
             });
             const filteredHistory = parsedHistory.filter((item: any) => {
+              if (deletedHistoryIds.current.has(item.id)) return false;
               if (userRole === "ADMIN") return true;
               const usersList = dbData.users || appUsers;
               const currentUser = usersList.find((u: any) => u.id === currentUserId || u.username === currentUserId);
@@ -3383,6 +3389,9 @@ export default function App() {
   const deletedImageIds = useRef<Set<string>>(
     getSetFromStorage("deleted_image_ids"),
   );
+  const deletedHistoryIds = useRef<Set<string>>(
+    getSetFromStorage("deleted_history_ids"),
+  );
   const unpushedImageIds = useRef<Set<string>>(
     getSetFromStorage("unpushed_image_ids"),
   );
@@ -3423,6 +3432,21 @@ export default function App() {
     }
   };
 
+  const addDeletedHistoryId = (id: string) => {
+    deletedHistoryIds.current.add(id);
+    localStorage.setItem(
+      "deleted_history_ids",
+      JSON.stringify(Array.from(deletedHistoryIds.current)),
+    );
+    if (isLocalServerMode) {
+      fetch(`${localServerUrl}/api/local-db`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deletedHistoryIds: [id], userId: currentUserId }),
+      }).catch((err) => console.error("Failed to sync history deletion to local server:", err));
+    }
+  };
+
   const addUnpushedImageId = (id: string) => {
     unpushedImageIds.current.add(id);
     localStorage.setItem(
@@ -3441,9 +3465,11 @@ export default function App() {
 
   const clearImageTracking = () => {
     deletedImageIds.current.clear();
+    deletedHistoryIds.current.clear();
     unpushedImageIds.current.clear();
     unpushedHistoryIds.current.clear();
     localStorage.removeItem("deleted_image_ids");
+    localStorage.removeItem("deleted_history_ids");
     localStorage.removeItem("unpushed_image_ids");
     localStorage.removeItem("unpushed_history_ids");
   };
@@ -4063,6 +4089,15 @@ export default function App() {
     const updatedHistory = scanHistory.filter(
       (item) => !selectedHistoryIds.includes(item.id),
     );
+    selectedHistoryIds.forEach((id) => {
+      addDeletedHistoryId(id);
+      unpushedHistoryIds.current.delete(id);
+    });
+    localStorage.setItem(
+      "unpushed_history_ids",
+      JSON.stringify(Array.from(unpushedHistoryIds.current)),
+    );
+
     setScanHistory(updatedHistory);
     setSelectedHistoryIds([]);
     if (selectedResult && selectedHistoryIds.includes(selectedResult.id)) {
@@ -5403,6 +5438,15 @@ export default function App() {
         }
 
         if (toRemove.size > 0) {
+          toRemove.forEach((id) => {
+            addDeletedHistoryId(id as string);
+            unpushedHistoryIds.current.delete(id as string);
+          });
+          localStorage.setItem(
+            "unpushed_history_ids",
+            JSON.stringify(Array.from(unpushedHistoryIds.current)),
+          );
+
           if (!firestoreQuotaExceeded) {
             try {
               const batch = writeBatch(db);
