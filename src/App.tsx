@@ -2296,21 +2296,34 @@ export default function App() {
     return () => clearTimeout(timeout);
   }, [scanHistory]);
 
-  // Reconcile images with scanHistory to completely delete/release any image when its graded result is deleted
+  // Reconcile images with scanHistory to revert status of any image when its graded result is deleted
   useEffect(() => {
     if (!initialHistoryFetchDone.current) return;
     setImages((prev) => {
       let isChanged = false;
-      const next = prev.filter((img) => {
+      const next = prev.map((img) => {
         if (img.result?.id) {
           const exists = scanHistory.some((item) => item.id === img.result.id);
           if (!exists) {
             isChanged = true;
-            addDeletedImageId(img.id);
-            return false;
+            if (img.rawAnswers) {
+              return {
+                ...img,
+                status: "scanned",
+                errorMsg: undefined,
+                result: undefined,
+              };
+            } else {
+              return {
+                ...img,
+                status: "pending",
+                errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
+                result: undefined,
+              };
+            }
           }
         }
-        return true;
+        return img;
       });
       return isChanged ? next : prev;
     });
@@ -4037,21 +4050,27 @@ export default function App() {
       setSelectedResult(null);
     }
 
-    const imageIdsToDelete: string[] = [];
-    images.forEach((img) => {
-      if (img.result && selectedHistoryIds.includes(img.result.id)) {
-        imageIdsToDelete.push(img.id);
-      }
-    });
-
-    // Delete corresponding images completely when their graded result is deleted
+    // Revert status of corresponding images instead of deleting them when their graded result is deleted
     setImages((prev) =>
-      prev.filter((img) => {
+      prev.map((img) => {
         if (img.result && selectedHistoryIds.includes(img.result.id)) {
-          addDeletedImageId(img.id);
-          return false;
+          if (img.rawAnswers) {
+            return {
+              ...img,
+              status: "scanned",
+              errorMsg: undefined,
+              result: undefined,
+            };
+          } else {
+            return {
+              ...img,
+              status: "pending",
+              errorMsg: "Đã xóa kết quả, cần nhận dạng và chấm lại",
+              result: undefined,
+            };
+          }
         }
-        return true;
+        return img;
       }),
     );
 
@@ -4068,7 +4087,6 @@ export default function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             deletedHistoryIds: selectedHistoryIds,
-            deletedImageIds: imageIdsToDelete,
             userId: currentUserId
           }),
         });
