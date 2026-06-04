@@ -1259,6 +1259,8 @@ export default function App() {
     // 2. Clear state immediately
     setUserRole(null);
     setCurrentUserId(null);
+    setSelectedHistoryIds([]);
+    setSelectedResult(null);
     try {
       localStorage.removeItem("app_user_role");
       localStorage.removeItem("app_current_user_id");
@@ -2772,6 +2774,25 @@ export default function App() {
     isLoadedRef.current = false;
     const loadData = async () => {
       try {
+        const storedHistoryIds = localStorage.getItem("deleted_history_ids");
+        if (storedHistoryIds) {
+          const parsed = JSON.parse(storedHistoryIds);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((id) => deletedHistoryIds.current.add(id));
+          }
+        }
+        const storedImageIds = localStorage.getItem("deleted_image_ids");
+        if (storedImageIds) {
+          const parsed = JSON.parse(storedImageIds);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((id) => deletedImageIds.current.add(id));
+          }
+        }
+      } catch (err) {
+        console.warn("Pre-loading deleted IDs failed in loadData:", err);
+      }
+
+      try {
         if (isLocalServerMode) {
           try {
             const res = await fetch(`${localServerUrl}/api/local-db`);
@@ -2912,6 +2933,8 @@ export default function App() {
                 if (dbData.omrConfig) {
                   setGlobalOMRConfig(dbData.omrConfig);
                 }
+                initialHistoryFetchDone.current = true;
+                initialQueueFetchDone.current = true;
                 isLoadedRef.current = true;
                 return;
               }
@@ -3082,7 +3105,11 @@ export default function App() {
       } catch (e) {
         console.error("Failed to load data from localforage", e);
       } finally {
-        if (isMounted) isLoadedRef.current = true;
+        if (isMounted) {
+          initialHistoryFetchDone.current = true;
+          initialQueueFetchDone.current = true;
+          isLoadedRef.current = true;
+        }
       }
     };
     loadData();
