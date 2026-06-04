@@ -173,78 +173,102 @@ async function startServer() {
     }
   };
 
+  // Simple memory queue lock to guarantee sequential order of db.json operations
+  let dbPromiseChain = Promise.resolve();
+
+  const runInDBQueue = <T>(op: () => T | Promise<T>): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      dbPromiseChain = dbPromiseChain.then(async () => {
+        try {
+          const res = await op();
+          resolve(res);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  };
+
   // GET complete local DB
-  app.get("/api/local-db", (req, res) => {
-    const dbData = readLocalDB();
-    res.json(dbData);
+  app.get("/api/local-db", async (req, res) => {
+    try {
+      const dbData = await runInDBQueue(() => readLocalDB());
+      res.json(dbData);
+    } catch (err: any) {
+      console.error("Error reading local-db:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // POST or merge data into local DB
-  app.post("/api/local-db", (req, res) => {
+  app.post("/api/local-db", async (req, res) => {
     try {
-      const dbData = readLocalDB();
-      const { users, structures, history, images, omrConfig, userId, deletedHistoryIds, deletedImageIds } = req.body;
+      const result = await runInDBQueue(async () => {
+        const dbData = readLocalDB();
+        const { users, structures, history, images, omrConfig, userId, deletedHistoryIds, deletedImageIds } = req.body;
 
-      // Ensure arrays are initialized
-      if (!Array.isArray(dbData.images)) dbData.images = [];
-      if (!Array.isArray(dbData.history)) dbData.history = [];
-      if (!Array.isArray(dbData.deletedHistoryIds)) dbData.deletedHistoryIds = [];
-      if (!Array.isArray(dbData.deletedImageIds)) dbData.deletedImageIds = [];
+        // Ensure arrays are initialized
+        if (!Array.isArray(dbData.images)) dbData.images = [];
+        if (!Array.isArray(dbData.history)) dbData.history = [];
+        if (!Array.isArray(dbData.deletedHistoryIds)) dbData.deletedHistoryIds = [];
+        if (!Array.isArray(dbData.deletedImageIds)) dbData.deletedImageIds = [];
 
-      // Perform global deletions if requested
-      if (Array.isArray(deletedHistoryIds) && deletedHistoryIds.length > 0) {
-        dbData.history = dbData.history.filter((h: any) => !deletedHistoryIds.includes(h.id));
-        deletedHistoryIds.forEach((id: string) => {
-          if (!dbData.deletedHistoryIds.includes(id)) {
-            dbData.deletedHistoryIds.push(id);
-          }
-        });
-      }
-      if (Array.isArray(deletedImageIds) && deletedImageIds.length > 0) {
-        dbData.images = dbData.images.filter((img: any) => !deletedImageIds.includes(img.id));
-        deletedImageIds.forEach((id: string) => {
-          if (!dbData.deletedImageIds.includes(id)) {
-            dbData.deletedImageIds.push(id);
-          }
-        });
-      }
-
-      if (users !== undefined) dbData.users = users;
-      if (structures !== undefined) dbData.structures = structures;
-      if (omrConfig !== undefined) dbData.omrConfig = omrConfig;
-
-      // Merge images safely if userId is provided, filtering out any deleted images
-      if (images !== undefined) {
-        const activeImages = images.filter((img: any) => !dbData.deletedImageIds.includes(img.id));
-        if (userId) {
-          const cleanImages = activeImages.map((img: any) => ({ ...img, userId: img.userId || userId }));
-          const sentImageIds = new Set(cleanImages.map((img: any) => img.id));
-          dbData.images = [
-            ...dbData.images.filter((img: any) => !sentImageIds.has(img.id) && !dbData.deletedImageIds.includes(img.id)),
-            ...cleanImages
-          ];
-        } else {
-          dbData.images = activeImages;
+        // Perform global deletions if requested
+        if (Array.isArray(deletedHistoryIds) && deletedHistoryIds.length > 0) {
+          dbData.history = dbData.history.filter((h: any) => !deletedHistoryIds.includes(h.id));
+          deletedHistoryIds.forEach((id: string) => {
+            if (!dbData.deletedHistoryIds.includes(id)) {
+              dbData.deletedHistoryIds.push(id);
+            }
+          });
         }
-      }
-
-      // Merge history safely if userId is provided, filtering out any deleted history items
-      if (history !== undefined) {
-        const activeHistory = history.filter((item: any) => !dbData.deletedHistoryIds.includes(item.id));
-        if (userId) {
-          const cleanHistory = activeHistory.map((item: any) => ({ ...item, userId: item.userId || userId }));
-          const sentHistoryIds = new Set(cleanHistory.map((item: any) => item.id));
-          dbData.history = [
-            ...dbData.history.filter((item: any) => !sentHistoryIds.has(item.id) && !dbData.deletedHistoryIds.includes(item.id)),
-            ...cleanHistory
-          ];
-        } else {
-          dbData.history = activeHistory;
+        if (Array.isArray(deletedImageIds) && deletedImageIds.length > 0) {
+          dbData.images = dbData.images.filter((img: any) => !deletedImageIds.includes(img.id));
+          deletedImageIds.forEach((id: string) => {
+            if (!dbData.deletedImageIds.includes(id)) {
+              dbData.deletedImageIds.push(id);
+            }
+          });
         }
-      }
 
-      writeLocalDB(dbData);
-      res.json({ success: true, db: dbData });
+        if (users !== undefined) dbData.users = users;
+        if (structures !== undefined) dbData.structures = structures;
+        if (omrConfig !== undefined) dbData.omrConfig = omrConfig;
+
+        // Merge images safely if userId is provided, filtering out any deleted images
+        if (images !== undefined) {
+          const activeImages = images.filter((img: any) => !dbData.deletedImageIds.includes(img.id));
+          if (userId) {
+            const cleanImages = activeImages.map((img: any) => ({ ...img, userId: img.userId || userId }));
+            const sentImageIds = new Set(cleanImages.map((img: any) => img.id));
+            dbData.images = [
+              ...dbData.images.filter((img: any) => !sentImageIds.has(img.id) && !dbData.deletedImageIds.includes(img.id)),
+              ...cleanImages
+            ];
+          } else {
+            dbData.images = activeImages;
+          }
+        }
+
+        // Merge history safely if userId is provided, filtering out any deleted history items
+        if (history !== undefined) {
+          const activeHistory = history.filter((item: any) => !dbData.deletedHistoryIds.includes(item.id));
+          if (userId) {
+            const cleanHistory = activeHistory.map((item: any) => ({ ...item, userId: item.userId || userId }));
+            const sentHistoryIds = new Set(cleanHistory.map((item: any) => item.id));
+            dbData.history = [
+              ...dbData.history.filter((item: any) => !sentHistoryIds.has(item.id) && !dbData.deletedHistoryIds.includes(item.id)),
+              ...cleanHistory
+            ];
+          } else {
+            dbData.history = activeHistory;
+          }
+        }
+
+        writeLocalDB(dbData);
+        return dbData;
+      });
+      res.json({ success: true, db: result });
     } catch (err: any) {
       console.error("Error updating local-db:", err);
       res.status(500).json({ error: err.message });

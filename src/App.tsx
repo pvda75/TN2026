@@ -4195,30 +4195,21 @@ export default function App() {
 
   const deleteSelectedHistory = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (selectedHistoryIds.length === 0) return;
+    const idsToDelete = [...selectedHistoryIds];
+    if (idsToDelete.length === 0) return;
 
-    try {
-      if (!firestoreQuotaExceeded) {
-        const batch = writeBatch(db);
-        selectedHistoryIds.forEach((id) => {
-          batch.delete(doc(db, "scanHistory", id));
-        });
-        await batch.commit();
-      }
-    } catch (e: any) {
-      console.error("Failed to delete from Firebase:", e);
-      if (isQuotaError(e)) {
-        setQuotaExceeded();
-      }
-    }
-
+    // 1. Immediately update UI and state locally
     const updatedHistory = scanHistory.filter(
-      (item) => !selectedHistoryIds.includes(item.id),
+      (item) => !idsToDelete.includes(item.id),
     );
-    selectedHistoryIds.forEach((id) => {
-      addDeletedHistoryId(id);
+    idsToDelete.forEach((id) => {
+      deletedHistoryIds.current.add(id);
       unpushedHistoryIds.current.delete(id);
     });
+    localStorage.setItem(
+      "deleted_history_ids",
+      JSON.stringify(Array.from(deletedHistoryIds.current)),
+    );
     localStorage.setItem(
       "unpushed_history_ids",
       JSON.stringify(Array.from(unpushedHistoryIds.current)),
@@ -4226,13 +4217,13 @@ export default function App() {
 
     setScanHistory(updatedHistory);
     setSelectedHistoryIds([]);
-    if (selectedResult && selectedHistoryIds.includes(selectedResult.id)) {
+    if (selectedResult && idsToDelete.includes(selectedResult.id)) {
       setSelectedResult(null);
     }
 
     // Immediately process updated images list to clear results and revert status
     const updatedImages = images.map((img) => {
-      if (img.result && selectedHistoryIds.includes(img.result.id)) {
+      if (img.result && idsToDelete.includes(img.result.id)) {
         if (img.rawAnswers) {
           return {
             ...img,
@@ -4254,7 +4245,7 @@ export default function App() {
 
     setImages(updatedImages);
 
-    // Save updated history and images immediately to localforage
+    // 2. Save updated history and images immediately to localforage
     try {
       await localforage.setItem(`autograde_history_${currentUserId}`, updatedHistory);
       await localforage.setItem(`autograde_images_${currentUserId}`, updatedImages);
@@ -4262,23 +4253,7 @@ export default function App() {
       console.error("Failed to save localforage history/images immediately:", err);
     }
 
-    // IMMEDIATELY update Firestore scanQueue
-    const targetQueueUserId = activeQueueUserId || currentUserId;
-    if (targetQueueUserId && !firestoreQuotaExceeded) {
-      const cleanImages = updatedImages.map((img: any) => {
-        const { isLocalSelected, isUploadingToFirebase, ...rest } = img;
-        return rest;
-      });
-      setDoc(
-        doc(db, "globals", `scanQueue_${targetQueueUserId}`),
-        { images: stripDataUrls(cleanImages), updatedAt: Date.now() },
-        { merge: true }
-      ).catch((err) => {
-        console.error("Failed to immediate-sync scanQueue to Firestore:", err);
-      });
-    }
-
-    // IMMEDIATELY update local-db
+    // 3. Sync deletions and images to local server (if local server mode)
     if (isLocalServerMode) {
       try {
         const imagesWithOwner = updatedImages.map((img: any) => ({
@@ -4289,13 +4264,55 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            deletedHistoryIds: selectedHistoryIds,
+            deletedHistoryIds: idsToDelete,
             images: imagesWithOwner,
             userId: currentUserId
           }),
         });
       } catch (err) {
         console.error("Failed to sync history deletion and updated images to local server:", err);
+      }
+    }
+
+    // 4. Update Firestore in the background (asynchronous non-blocking)
+    if (!isLocalServerMode && !firestoreQuotaExceeded) {
+      // background firestore deletion
+      (async () => {
+        try {
+          const batch = writeBatch(db);
+          idsToDelete.forEach((id) => {
+            batch.delete(doc(db, "scanHistory", id));
+          });
+          await batch.commit();
+
+          // Sync deletedHistoryIds to appData global
+          await setDoc(
+            doc(db, "globals", "appData"),
+            { deletedHistoryIds: arrayUnion(...idsToDelete) },
+            { merge: true }
+          );
+        } catch (e: any) {
+          console.error("Failed to delete from Firebase:", e);
+          if (isQuotaError(e)) {
+            setQuotaExceeded();
+          }
+        }
+      })();
+
+      // update queue
+      const targetQueueUserId = activeQueueUserId || currentUserId;
+      if (targetQueueUserId) {
+        const cleanImages = updatedImages.map((img: any) => {
+          const { isLocalSelected, isUploadingToFirebase, ...rest } = img;
+          return rest;
+        });
+        setDoc(
+          doc(db, "globals", `scanQueue_${targetQueueUserId}`),
+          { images: stripDataUrls(cleanImages), updatedAt: Date.now() },
+          { merge: true }
+        ).catch((err) => {
+          console.error("Failed to immediate-sync scanQueue to Firestore:", err);
+        });
       }
     }
   };
@@ -5589,9 +5606,13 @@ export default function App() {
 
         if (toRemove.size > 0) {
           toRemove.forEach((id) => {
-            addDeletedHistoryId(id as string);
+            deletedHistoryIds.current.add(id as string);
             unpushedHistoryIds.current.delete(id as string);
           });
+          localStorage.setItem(
+            "deleted_history_ids",
+            JSON.stringify(Array.from(deletedHistoryIds.current)),
+          );
           localStorage.setItem(
             "unpushed_history_ids",
             JSON.stringify(Array.from(unpushedHistoryIds.current)),
@@ -6822,23 +6843,50 @@ export default function App() {
 
                         <div className="mt-6 flex flex-col sm:flex-row justify-between gap-3 pt-4 border-t border-slate-200">
                           <button
-                            onClick={() =>
-                              setImages((prev) => {
-                                const remaining = prev.filter(
-                                  (img) =>
-                                    !(
-                                      img.examName === gradeExamName &&
-                                      (activeClass === "ALL" || img.classId === activeClass)
-                                    ),
-                                );
-                                prev.forEach((img) => {
-                                  if (!remaining.some((r) => r.id === img.id)) {
-                                    addDeletedImageId(img.id);
-                                  }
+                            onClick={() => {
+                              const removedIds: string[] = [];
+                              const remaining = images.filter((img) => {
+                                const matched = img.examName === gradeExamName &&
+                                  (activeClass === "ALL" || img.classId === activeClass);
+                                if (matched) {
+                                  removedIds.push(img.id);
+                                }
+                                return !matched;
+                              });
+
+                              if (removedIds.length > 0) {
+                                removedIds.forEach((id) => {
+                                  deletedImageIds.current.add(id);
                                 });
-                                return remaining;
-                              })
-                            }
+                                localStorage.setItem(
+                                  "deleted_image_ids",
+                                  JSON.stringify(Array.from(deletedImageIds.current)),
+                                );
+
+                                if (isLocalServerMode) {
+                                  fetch(`${localServerUrl}/api/local-db`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      deletedImageIds: removedIds,
+                                      userId: currentUserId,
+                                    }),
+                                  }).catch((err) =>
+                                    console.error("Failed to sync images deletion to local server:", err),
+                                  );
+                                } else if (!firestoreQuotaExceeded) {
+                                  setDoc(
+                                    doc(db, "globals", "appData"),
+                                    { deletedImageIds: arrayUnion(...removedIds) },
+                                    { merge: true }
+                                  ).catch((err) =>
+                                    console.error("Failed to sync images deletion to Firestore:", err),
+                                  );
+                                }
+                              }
+
+                              setImages(remaining);
+                            }}
                             disabled={globalProcessing}
                             className="bg-white hover:bg-red-50 text-red-600 font-medium py-2 px-4 border border-red-200 rounded-lg shadow-sm transition-colors text-sm disabled:opacity-50"
                           >
