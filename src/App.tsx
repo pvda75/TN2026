@@ -1259,6 +1259,7 @@ export default function App() {
       localStorage.removeItem("app_user_role");
       localStorage.removeItem("app_current_user_id");
       sessionStorage.clear();
+      clearImageTracking();
     } catch {}
     setLoginUsername("");
     setLoginPassword("");
@@ -3138,15 +3139,26 @@ export default function App() {
               })))
             : "";
 
-          if (currentStr !== lastSyncedStr) {
+          const currentDeletedIds = Array.from(deletedImageIds.current);
+
+          if (currentStr !== lastSyncedStr || currentDeletedIds.length > 0) {
             fetch(`${localServerUrl}/api/local-db`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ images: imagesWithOwner, userId: currentUserId })
+              body: JSON.stringify({ 
+                images: imagesWithOwner, 
+                deletedImageIds: currentDeletedIds,
+                userId: currentUserId 
+              })
             })
             .then(res => {
               if (res.ok) {
                 lastSyncedImagesRef.current = imagesWithOwner;
+                currentDeletedIds.forEach(id => deletedImageIds.current.delete(id));
+                localStorage.setItem(
+                  "deleted_image_ids",
+                  JSON.stringify(Array.from(deletedImageIds.current)),
+                );
               }
             })
             .catch(err => console.error("Failed to save images:", err));
@@ -3402,6 +3414,13 @@ export default function App() {
       "deleted_image_ids",
       JSON.stringify(Array.from(deletedImageIds.current)),
     );
+    if (isLocalServerMode) {
+      fetch(`${localServerUrl}/api/local-db`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deletedImageIds: [id], userId: currentUserId }),
+      }).catch((err) => console.error("Failed to sync image deletion to local server:", err));
+    }
   };
 
   const addUnpushedImageId = (id: string) => {
