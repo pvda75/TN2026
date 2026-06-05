@@ -1140,6 +1140,7 @@ export default function App() {
   const [tempPermissionGrade, setTempPermissionGrade] = useState<boolean>(true);
   const [tempPermissionViewResults, setTempPermissionViewResults] = useState<boolean>(true);
   const [tempPermissionEditResults, setTempPermissionEditResults] = useState<boolean>(true);
+  const [tempPermissionDeleteResults, setTempPermissionDeleteResults] = useState<boolean>(true);
 
   useEffect(() => {
     if (showPermissionModal) {
@@ -1152,6 +1153,7 @@ export default function App() {
         setTempPermissionGrade(user.permissionGrade !== false);
         setTempPermissionViewResults(user.permissionViewResults !== false);
         setTempPermissionEditResults(user.permissionEditResults !== false);
+        setTempPermissionDeleteResults(user.permissionDeleteResults !== false);
       }
     } else {
       setTempAssignedClasses([]);
@@ -1161,6 +1163,7 @@ export default function App() {
       setTempPermissionGrade(true);
       setTempPermissionViewResults(true);
       setTempPermissionEditResults(true);
+      setTempPermissionDeleteResults(true);
     }
   }, [showPermissionModal, appUsers]);
   const [newUserInput, setNewUserInput] = useState({
@@ -1704,6 +1707,7 @@ export default function App() {
   const userHasGrade = !isUserConstrained || (currentUserData?.permissionGrade !== false);
   const userHasViewResults = !isUserConstrained || (currentUserData?.permissionViewResults !== false);
   const userHasEditResults = !isUserConstrained || (currentUserData?.permissionEditResults !== false);
+  const userHasDeleteResults = !isUserConstrained || (currentUserData?.permissionDeleteResults !== false);
 
   const allowedClasses =
     isUserConstrained && currentUserData?.assignedClasses?.length > 0
@@ -4199,6 +4203,14 @@ export default function App() {
 
   const deleteSelectedHistory = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!userHasDeleteResults) {
+      setDialogState({
+        type: "alert",
+        variant: "danger",
+        message: "Tài khoản của bạn không có quyền Xoá kết quả chấm.",
+      });
+      return;
+    }
     const idsToDelete = [...selectedHistoryIds];
     if (idsToDelete.length === 0) return;
 
@@ -7381,8 +7393,13 @@ export default function App() {
                                     </>
                                   )}
                                 <button
-                                  className="bg-red-500 hover:bg-red-600 text-white font-medium py-1 px-2 rounded tracking-normal normal-case shadow-sm transition-colors text-xs"
+                                  className={`font-medium py-1 px-2 rounded tracking-normal normal-case shadow-sm transition-colors text-xs ${
+                                    userHasDeleteResults
+                                      ? "bg-red-500 hover:bg-red-600 text-white"
+                                      : "bg-slate-300 text-slate-500 cursor-not-allowed"
+                                  }`}
                                   onClick={deleteSelectedHistory}
+                                  title={userHasDeleteResults ? "Xoá kết quả chấm đã chọn" : "Tài khoản của bạn không có quyền Xoá kết quả chấm"}
                                 >
                                   Xoá {selectedHistoryIds.length} mục
                                 </button>
@@ -9908,6 +9925,7 @@ export default function App() {
                       permissionGrade: true,
                       permissionViewResults: true,
                       permissionEditResults: true,
+                      permissionDeleteResults: true,
                     };
                     setAppUsers([...appUsers, newUser]);
                     setShowAddUserModal(false);
@@ -10044,7 +10062,7 @@ export default function App() {
                     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
                       <div className="space-y-4">
                         <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2 mb-2 uppercase tracking-wide flex items-center gap-1.5 text-indigo-600">
-                          <CheckCircle className="w-4 h-4" /> Quyền chức năng hoạt động
+                          <CheckCircle className="w-4 h-4" /> Quyết định chức năng hoạt động
                         </h3>
                         <p className="text-xs text-slate-500 mb-4 bg-indigo-50/50 p-2 border border-indigo-100/50 rounded-lg text-slate-600 leading-relaxed">
                           Cấu hình các quyền hạn nghiệp vụ của tài khoản này khi xử lý dữ liệu Kỳ thi, Bài thi, Lớp/Phòng được phân quyền ở cột trái.
@@ -10102,6 +10120,19 @@ export default function App() {
                               <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Cho phép sửa Số báo danh, Mã đề, và chi tiết lựa chọn đáp án các phần.</span>
                             </div>
                           </label>
+
+                          <label className="flex items-start gap-3 text-sm text-slate-700 cursor-pointer p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50/50 transition">
+                            <input
+                              type="checkbox"
+                              className="accent-indigo-600 w-4 h-4 rounded mt-0.5 flex-shrink-0"
+                              checked={tempPermissionDeleteResults}
+                              onChange={(e) => setTempPermissionDeleteResults(e.target.checked)}
+                            />
+                            <div>
+                              <span className="font-semibold text-slate-800 block text-xs sm:text-sm">Xoá kết quả chấm</span>
+                              <span className="text-[11px] text-slate-400 block mt-0.5 leading-relaxed">Cho phép xoá các kết quả chấm thi trong danh sách kết quả.</span>
+                            </div>
+                          </label>
                         </div>
                       </div>
                     </div>
@@ -10128,6 +10159,7 @@ export default function App() {
                                 permissionGrade: tempPermissionGrade,
                                 permissionViewResults: tempPermissionViewResults,
                                 permissionEditResults: tempPermissionEditResults,
+                                permissionDeleteResults: tempPermissionDeleteResults,
                               }
                             : u,
                         ),
