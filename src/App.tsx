@@ -1120,7 +1120,7 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ users: appUsers })
-      }).catch(err => console.error("Failed to sync users to local server", err));
+      }).catch(err => console.warn("Failed to sync users to local server", err));
     }
   }, [appUsers, isLocalServerMode, localServerUrl]);
 
@@ -3145,7 +3145,7 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ structures: examStructures })
-      }).catch(err => console.error("Failed to sync structures to local server", err));
+      }).catch(err => console.warn("Failed to sync structures to local server", err));
     }
   }, [examStructures, isLocalServerMode, localServerUrl]);
 
@@ -3165,7 +3165,7 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ omrConfig: globalOMRConfig })
-        }).catch(err => console.error("Failed to sync omrConfig to local server", err));
+        }).catch(err => console.warn("Failed to sync omrConfig to local server", err));
       }
     }
   }, [globalOMRConfig, isLocalServerMode, localServerUrl]);
@@ -3205,7 +3205,7 @@ export default function App() {
                 lastSyncedHistoryRef.current = historyWithOwner;
               }
             })
-            .catch(err => console.error("Failed to sync history to local server", err));
+            .catch(err => console.warn("Failed to sync history to local server", err));
           }
         }
       } catch (err) {
@@ -3550,13 +3550,13 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deletedImageIds: [id], userId: currentUserId }),
-      }).catch((err) => console.error("Failed to sync image deletion to local server:", err));
+      }).catch((err) => console.warn("Failed to sync image deletion to local server:", err));
     } else if (!firestoreQuotaExceeded) {
       setDoc(
         doc(db, "globals", "appData"),
         { deletedImageIds: arrayUnion(id) },
         { merge: true }
-      ).catch((err) => console.error("Failed to sync image deletion to firestore:", err));
+      ).catch((err) => console.warn("Failed to sync image deletion to firestore:", err));
     }
   };
 
@@ -3571,13 +3571,13 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deletedHistoryIds: [id], userId: currentUserId }),
-      }).catch((err) => console.error("Failed to sync history deletion to local server:", err));
+      }).catch((err) => console.warn("Failed to sync history deletion to local server:", err));
     } else if (!firestoreQuotaExceeded) {
       setDoc(
         doc(db, "globals", "appData"),
         { deletedHistoryIds: arrayUnion(id) },
         { merge: true }
-      ).catch((err) => console.error("Failed to sync history deletion to firestore:", err));
+      ).catch((err) => console.warn("Failed to sync history deletion to firestore:", err));
     }
   };
 
@@ -4286,7 +4286,7 @@ export default function App() {
           }),
         });
       } catch (err) {
-        console.error("Failed to sync history deletion and updated images to local server:", err);
+        console.warn("Failed to sync history deletion and updated images to local server:", err);
       }
     }
 
@@ -5719,7 +5719,7 @@ export default function App() {
                 userId: currentUserId,
               }),
             }).catch((err) =>
-              console.error("Failed to sync OMR overwrite deletion to local server:", err),
+              console.warn("Failed to sync OMR overwrite deletion to local server:", err),
             );
           }
         }
@@ -6948,7 +6948,7 @@ export default function App() {
                                       userId: currentUserId,
                                     }),
                                   }).catch((err) =>
-                                    console.error("Failed to sync images deletion to local server:", err),
+                                    console.warn("Failed to sync images deletion to local server:", err),
                                   );
                                 } else if (!firestoreQuotaExceeded) {
                                   setDoc(
@@ -6956,7 +6956,7 @@ export default function App() {
                                     { deletedImageIds: arrayUnion(...removedIds) },
                                     { merge: true }
                                   ).catch((err) =>
-                                    console.error("Failed to sync images deletion to Firestore:", err),
+                                    console.warn("Failed to sync images deletion to Firestore:", err),
                                   );
                                 }
                               }
