@@ -1760,6 +1760,9 @@ export default function App() {
   const [editingImageConfigId, setEditingImageConfigId] = useState<
     string | null
   >(null);
+  const [editingResultConfigId, setEditingResultConfigId] = useState<
+    string | null
+  >(null);
   const [globalProcessing, setGlobalProcessing] = useState(false);
   const stopScanningRef = useRef<boolean>(false);
 
@@ -4459,7 +4462,7 @@ export default function App() {
       const ctx = canvas.getContext("2d");
       ctx?.drawImage(imgEl, 0, 0);
 
-      let baseConf = globalOMRConfig || DEFAULT_OMR_CONFIG;
+      let baseConf = match.customConfig || globalOMRConfig || DEFAULT_OMR_CONFIG;
       const omrConfig: OMRConfig = {
         paperWidth: baseConf.paperWidth,
         paperHeight: baseConf.paperHeight,
@@ -7522,6 +7525,13 @@ export default function App() {
                           CHẤM LẠI ẢNH
                         </button>
                         <button
+                          onClick={() => setEditingResultConfigId(selectedResult.id)}
+                          className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 border border-amber-700 rounded-lg font-semibold text-xs transition shadow-sm flex items-center gap-1.5"
+                        >
+                          <Target className="w-3.5 h-3.5" />
+                          CẤU HÌNH TOẠ ĐỘ
+                        </button>
+                        <button
                           onClick={async () => {
                             setGlobalProcessing(true);
                             const imgSrc =
@@ -10177,6 +10187,62 @@ export default function App() {
                 });
               }}
               onCancel={() => setEditingImageConfigId(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {editingResultConfigId && (
+        <div className="fixed inset-0 z-50 overflow-auto bg-black/80 flex items-start justify-center p-4">
+          <div className="w-full max-w-7xl mt-4">
+            <Calibration
+              initialConfig={
+                scanHistory.find((i) => i.id === editingResultConfigId)
+                  ?.customConfig || globalOMRConfig
+              }
+              customImageSrc={
+                scanHistory.find((i) => i.id === editingResultConfigId)
+                  ?.originalImageSrc ||
+                scanHistory.find((i) => i.id === editingResultConfigId)
+                  ?.imageSrc ||
+                scanHistory.find((i) => i.id === editingResultConfigId)
+                  ?.firebaseImageUrl
+              }
+              onSave={async (newCfg) => {
+                setScanHistory((prev) => {
+                  const next = prev.map((item) => {
+                    if (item.id === editingResultConfigId) {
+                      return {
+                        ...item,
+                        customConfig: newCfg,
+                      };
+                    }
+                    return item;
+                  });
+                  localforage.setItem(`autograde_history_${currentUserId}`, next);
+                  return next;
+                });
+
+                setSelectedResult((prev: any) => {
+                  if (prev && prev.id === editingResultConfigId) {
+                    return {
+                      ...prev,
+                      customConfig: newCfg,
+                    };
+                  }
+                  return prev;
+                });
+
+                setEditingResultConfigId(null);
+                setDialogState({
+                  type: "confirm",
+                  message: "Đã lưu toạ độ căn chỉnh tuỳ chỉnh cho ảnh này! Bạn có muốn thực hiện chấm lại điểm ngay bây giờ không?",
+                  onConfirm: () => {
+                    regradeSingleResultInline(editingResultConfigId);
+                  },
+                });
+              }}
+              onCancel={() => setEditingResultConfigId(null)}
             />
           </div>
         </div>
